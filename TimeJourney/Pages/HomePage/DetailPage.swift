@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 /// 详情页面数据模型（用于演示传入参数）
-struct DetailPageData {
+struct DetailPageData: Identifiable {
     let id: String
     var title: String
     var description: String

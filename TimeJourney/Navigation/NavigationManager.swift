@@ -16,6 +16,7 @@ enum NavigationDestination: Hashable {
     case recordRoute  // 开始记录路线
     case importPhotoLocation  // 获取照片位置
     case exportData  // 数据导出
+    case fullList(title: String, category: String)  // 完整列表页面（传入标题和分类）
     // 可以继续添加其他导航目标
     // case settings
 }

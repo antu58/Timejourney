@@ -62,27 +62,45 @@ struct HomePage: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .padding()
             
-            VStack(alignment: .leading) {
-                ForEach(dataManager.items, id: \.id) { item in
-                    Button(action: {
-                        navigateToDetail(id: item.id)
-                    }) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title)
-                                .font(.headline)
-                            Text(item.description)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("计数: \(item.count)")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .buttonStyle(.plain)
+            // 你的指南
+            HorizontalScrollSection(
+                title: "你的指南",
+                items: Array(dataManager.items.prefix(5)),
+                onTitleTap: {
+                    navigateToFullList(title: "你的指南", category: "guide")
+                }
+            ) { item in
+                LocationCard(item: item) {
+                    navigateToDetail(id: item.id)
                 }
             }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            // 你的路线
+            HorizontalScrollSection(
+                title: "你的路线",
+                items: dataManager.popularRoutes,
+                onTitleTap: {
+                    navigateToFullList(title: "你的路线", category: "route")
+                }
+            ) { route in
+                RouteCard(route: route) {
+                    // 可以添加路线详情导航
+                    print("点击了路线: \(route.title)")
+                }
+            }
+            
+            // 你的地点
+            HorizontalScrollSection(
+                title: "你的地点",
+                items: Array(dataManager.items.suffix(5)),
+                onTitleTap: {
+                    navigateToFullList(title: "你的地点", category: "location")
+                }
+            ) { item in
+                LocationCard(item: item) {
+                    navigateToDetail(id: item.id)
+                }
+            }
         }
         .navigationDestination(for: NavigationDestination.self) { destination in
             homePageDestinationView(for: destination)
@@ -149,6 +167,11 @@ struct HomePage: View {
         navigationManager.navigate(to: .exportData)
     }
     
+    /// 导航到完整列表页面
+    private func navigateToFullList(title: String, category: String) {
+        navigationManager.navigate(to: .fullList(title: title, category: category))
+    }
+    
     /// HomePage 管理的导航目标视图
     @ViewBuilder
     private func homePageDestinationView(for destination: NavigationDestination) -> some View {
@@ -188,6 +211,28 @@ struct HomePage: View {
             ExportDataPage { result in
                 // 接收数据导出页面传出的参数
                 print("导出结果: \(result)")
+            }
+        case .fullList(let title, let category):
+            // 根据分类显示不同的列表页面
+            if category == "route" {
+                // 路线列表
+                FullRouteListPage(
+                    title: title,
+                    routes: dataManager.getRoutes(for: category),
+                    onRouteTap: { routeId in
+                        // 可以添加路线详情导航
+                        print("点击了路线: \(routeId)")
+                    }
+                )
+            } else {
+                // 地点/指南列表
+                FullListPage(
+                    title: title,
+                    items: dataManager.getItems(for: category),
+                    onItemTap: { id in
+                        navigateToDetail(id: id)
+                    }
+                )
             }
         default:
             // 其他导航目标由 ContentView 处理
