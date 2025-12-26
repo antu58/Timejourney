@@ -214,7 +214,21 @@ struct HomePage: View {
             }
         case .fullList(let title, let category):
             // 根据分类显示不同的列表页面
-            if category == "route" {
+            if category == "guide" {
+                // 指南页面 - 带 Tab 切换
+                FullGuidePage(
+                    title: title,
+                    routes: dataManager.getRoutes(for: "route"),
+                    locations: dataManager.getItems(for: category),
+                    onRouteTap: { routeId in
+                        // 可以添加路线详情导航
+                        print("点击了路线: \(routeId)")
+                    },
+                    onLocationTap: { id in
+                        navigateToDetail(id: id)
+                    }
+                )
+            } else if category == "route" {
                 // 路线列表
                 FullRouteListPage(
                     title: title,
@@ -225,7 +239,7 @@ struct HomePage: View {
                     }
                 )
             } else {
-                // 地点/指南列表
+                // 地点列表
                 FullListPage(
                     title: title,
                     items: dataManager.getItems(for: category),
