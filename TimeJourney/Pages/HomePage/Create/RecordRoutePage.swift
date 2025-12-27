@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct RecordRoutePage: View {
-    @Environment(NavigationManager.self) private var navigationManager
+    @Environment(\.dismiss) private var dismiss
     
     // 传出参数的回调
     let onResult: ((String) -> Void)?
@@ -40,7 +40,7 @@ struct RecordRoutePage: View {
                 .buttonStyle(.borderedProminent)
                 
                 Button("取消") {
-                    navigationManager.goBack()
+                    dismiss()
                 }
                 .buttonStyle(.bordered)
             }
@@ -57,15 +57,14 @@ struct RecordRoutePage: View {
         // 调用回调函数传出参数
         onResult?(finalResult)
         
-        // 返回上一页
-        navigationManager.goBack()
+        // 关闭 sheet
+        dismiss()
     }
 }
 
 #Preview {
     NavigationStack {
         RecordRoutePage()
-            .environment(NavigationManager())
     }
 }
 

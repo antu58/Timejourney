@@ -13,6 +13,13 @@ struct HomePage: View {
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(HomePageDataManager.self) private var dataManager
     @State private var mapPosition = MapCameraPosition.automatic
+    
+    // Sheet 显示状态
+    @State private var showSearchSheet = false
+    @State private var showMarkLocationSheet = false
+    @State private var showRecordRouteSheet = false
+    @State private var showImportPhotoLocationSheet = false
+    @State private var showExportDataSheet = false
 
     var body: some View {
         ScrollView {
@@ -105,6 +112,53 @@ struct HomePage: View {
         .navigationDestination(for: NavigationDestination.self) { destination in
             homePageDestinationView(for: destination)
         }
+        .sheet(isPresented: $showSearchSheet) {
+            NavigationStack {
+                SearchPage()
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showMarkLocationSheet) {
+            NavigationStack {
+                MarkLocationPage { result in
+                    print("标记位置结果: \(result)")
+                    showMarkLocationSheet = false
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showRecordRouteSheet) {
+            NavigationStack {
+                RecordRoutePage { result in
+                    print("路线记录结果: \(result)")
+                    showRecordRouteSheet = false
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showImportPhotoLocationSheet) {
+            NavigationStack {
+                ImportPhotoLocationPage { result in
+                    print("照片位置结果: \(result)")
+                    showImportPhotoLocationSheet = false
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showExportDataSheet) {
+            NavigationStack {
+                ExportDataPage { result in
+                    print("导出结果: \(result)")
+                    showExportDataSheet = false
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarLeading) {
@@ -113,21 +167,21 @@ struct HomePage: View {
                 }
             }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button(action: navigateToSearch) {
+                Button(action: { showSearchSheet = true }) {
                     Label("Search", systemImage: "magnifyingglass")
                 }
                 Menu {
-                    Button(action: addNewItem) {
+                    Button(action: { showMarkLocationSheet = true }) {
                         Label("标记当前位置", systemImage: "mappin.circle.fill")
                     }
-                    Button(action: addFromTemplate) {
+                    Button(action: { showRecordRouteSheet = true }) {
                         Label("开始记录路线", systemImage: "record.circle.fill")
                     }
-                    Button(action: importData) {
+                    Button(action: { showImportPhotoLocationSheet = true }) {
                         Label("获取照片位置", systemImage: "photo")
                     }
                     Divider()
-                    Button(action: exportData) {
+                    Button(action: { showExportDataSheet = true }) {
                         Label("数据导出", systemImage: "square.and.arrow.up")
                     }
                 } label: {
@@ -139,32 +193,12 @@ struct HomePage: View {
     }
 
     private func navigateToSearch() {
-        navigationManager.navigate(to: NavigationDestination.search)
+        showSearchSheet = true
     }
     
     /// 导航到详情页面（传入参数：ID）
     private func navigateToDetail(id: String) {
         navigationManager.navigate(to: .detail(id: id))
-    }
-    
-    /// 标记当前位置
-    private func addNewItem() {
-        navigationManager.navigate(to: .markLocation)
-    }
-    
-    /// 开始记录路线
-    private func addFromTemplate() {
-        navigationManager.navigate(to: .recordRoute)
-    }
-    
-    /// 获取照片位置
-    private func importData() {
-        navigationManager.navigate(to: .importPhotoLocation)
-    }
-    
-    /// 数据导出
-    private func exportData() {
-        navigationManager.navigate(to: .exportData)
     }
     
     /// 导航到完整列表页面

@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct MarkLocationPage: View {
-    @Environment(NavigationManager.self) private var navigationManager
+    @Environment(\.dismiss) private var dismiss
     
     // 传出参数的回调
     let onResult: ((String) -> Void)?
@@ -37,7 +37,7 @@ struct MarkLocationPage: View {
                 .buttonStyle(.borderedProminent)
                 
                 Button("取消") {
-                    navigationManager.goBack()
+                    dismiss()
                 }
                 .buttonStyle(.bordered)
             }
@@ -54,15 +54,14 @@ struct MarkLocationPage: View {
         // 调用回调函数传出参数
         onResult?(finalResult)
         
-        // 返回上一页
-        navigationManager.goBack()
+        // 关闭 sheet
+        dismiss()
     }
 }
 
 #Preview {
     NavigationStack {
         MarkLocationPage()
-            .environment(NavigationManager())
     }
 }
 
