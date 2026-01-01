@@ -15,7 +15,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             NavigationStack(path: $navigationManager.path) {
-                HomePage()
+                MapPage()
                     .navigationDestination(for: NavigationDestination.self) { destination in
                         destinationView(for: destination)
                     }
