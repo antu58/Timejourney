@@ -22,12 +22,40 @@ struct MapPage: View {
                 Spacer()
                 
                 // 底部控制栏
+                HStack {
+                    Spacer()
+                    VStack {
+                        Button(action: {
+                            // TODO: 定位功能
+                        }) {
+                            Image(systemName: "location")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(width: 36, height: 36)
+                                .glassEffect(.regular, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Button(action: {
+                            // TODO: 路线选择功能
+                        }) {
+                            Image(systemName: "hand.tap")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(width: 36, height: 36)
+                                .glassEffect(.regular, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.trailing, 10)
+                }
+                .padding(.bottom)
                 HStack(spacing: 16) {
                     // 指南按钮
                     Button(action: {
                         // TODO: 指南功能
                     }) {
-                        Image(systemName: "compass.drawing")
+                        Image(systemName: "tray")
                             .font(.system(size: 20, weight: .medium))
                             .foregroundStyle(.primary)
                             .frame(width: 44, height: 44)
@@ -39,16 +67,30 @@ struct MapPage: View {
                     TimelineScrollBar(state: timelineState)
                     
                     // 添加按钮
-                    Button(action: {
-                        // TODO: 添加功能
-                    }) {
+                    Menu {
+                        Button(action: {
+                            
+                        }) {
+                            Label("标记当前位置", systemImage: "mappin")
+                        }
+                        Divider()
+                        Button(action: {
+                            
+                        }) {
+                            Label("开始记录路线", systemImage: "record.circle")
+                        }
+                        Divider()
+                        Button(action: {
+                        }) {
+                            Label("获取照片位置", systemImage: "photo")
+                        }
+                    } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.black)
                             .frame(width: 44, height: 44)
                             .glassEffect(.regular, in: Circle())
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding()
 
@@ -58,7 +100,7 @@ struct MapPage: View {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: {}) {
-                    Label("User", systemImage: "person.circle.fill")
+                    Label("User", systemImage: "person")
                 }
             }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -69,23 +111,14 @@ struct MapPage: View {
                     Button(action: {
                         
                     }) {
-                        Label("标记当前位置", systemImage: "mappin.circle.fill")
-                    }
-                    Button(action: {
-                        
-                    }) {
-                        Label("开始记录路线", systemImage: "record.circle.fill")
-                    }
-                    Button(action: {
-                    }) {
-                        Label("获取照片位置", systemImage: "photo")
+                        Label("分享", systemImage: "mappin")
                     }
                     Divider()
                     Button(action: { }) {
                         Label("数据导出", systemImage: "square.and.arrow.up")
                     }
                 } label: {
-                    Label("添加", systemImage: "plus")
+                    Label("更多", systemImage: "ellipsis")
                 }
             }
             #endif
