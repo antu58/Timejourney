@@ -1,0 +1,56 @@
+# TimeJourney 项目规则
+
+## Swift 版本和语言特性
+- 使用 Swift 6 语法和特性
+- 采用严格的并发检查（Strict Concurrency Checking）
+- 使用 `async/await` 进行异步操作，避免回调地狱
+- 合理使用 `Sendable` 协议标记线程安全类型
+- 利用 Actor 模型进行并发数据隔离
+
+## SwiftUI 编码规范
+- 遵循声明式 UI 编程范式
+- **必须使用 Swift 6 的 `@Observable` 宏，禁止使用 `ObservableObject` 协议**
+- 使用现代的属性包装器：
+  - `@State` - 视图本地状态
+  - `@Binding` - 双向数据绑定
+  - `@Observable` + `@State` - 替代 `@StateObject`，用于可观察对象
+  - `@Observable` + `@Environment()` - 替代 `@EnvironmentObject`，用于环境注入
+  - **禁止使用 `@StateObject`、`@ObservedObject`、`@EnvironmentObject`**
+- 可观察对象使用方式：
+  - 导入：需要 `import Observation` 框架（iOS 17+）
+  - 定义：使用 `@Observable` 宏标记类，直接使用普通属性（不需要 `@Published`）
+  - 创建实例：使用 `@State` 而不是 `@StateObject`
+  - 环境注入：使用 `.environment(instance)` 而不是 `.environmentObject(instance)`
+  - 环境访问：使用 `@Environment(ClassName.self)` 而不是 `@EnvironmentObject`
+- 视图组件化，保持单一职责
+- 使用 `#Preview` 宏提供预览支持
+- 优先使用 iOS 17+ 的最新 SwiftUI API
+
+## SwiftData 使用规范
+- 使用 `@Model` 宏定义数据模型
+- 通过 `ModelContainer` 管理数据持久化
+- 使用 `@Query` 进行数据查询
+- 遵循数据模型的迁移策略
+
+## 代码组织
+- 使用文件系统同步组织项目结构
+- 将相关功能组织到 Pages 目录下
+- 保持文件命名清晰，使用 PascalCase
+- 视图、模型、工具类分离
+
+## 并发和线程安全
+- UI 更新必须在 `@MainActor` 隔离域内
+- 后台任务使用 `Task` 和 `Task.detached`
+- 避免在视图初始化中执行耗时操作
+
+## 代码风格
+- 使用中文注释和文档
+- 保持代码简洁、可读性强
+- 遵循 Swift API 设计指南
+- 使用有意义的变量和函数命名
+
+## 项目特定规则
+- 这是一个时间旅行记录应用（TimeJourney）
+- 包含地图、路线、位置标记等功能
+- 保持代码与现有架构风格一致
+

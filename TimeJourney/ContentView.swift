@@ -31,8 +31,14 @@ struct ContentView: View {
     @ViewBuilder
     private func destinationView(for destination: NavigationDestination) -> some View {
         switch destination {
+        case .guide:
+            GuidePage()
+        case .search:
+            SearchPage()
+        case .user:
+            UserPage()
         default:
-            // HomePage 管理的导航目标由 HomePage 自己处理
+            // 其他导航目标由各自页面处理
             EmptyView()
         }
     }

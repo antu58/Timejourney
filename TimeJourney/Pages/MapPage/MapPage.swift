@@ -9,15 +9,16 @@ import SwiftUI
 import MapKit
 
 struct MapPage: View {
-    
+
     @State private var mapPosition = MapCameraPosition.automatic
     @State private var timelineState = TimelineState()
-    
+    @Environment(NavigationManager.self) private var navigationManager
+
     var body: some View {
         ZStack {
             Map(position: $mapPosition)
                 .mapStyle(.standard)
-            
+
             VStack {
                 Spacer()
                 
@@ -51,9 +52,9 @@ struct MapPage: View {
                 }
                 .padding(.bottom)
                 HStack(spacing: 16) {
-                    // 指南按钮
+                    // 指南按钮 - 使用导航管理器进入指南页面
                     Button(action: {
-                        // TODO: 指南功能
+                        navigationManager.navigate(to: .guide)
                     }) {
                         Image(systemName: "tray")
                             .font(.system(size: 20, weight: .medium))
@@ -99,22 +100,28 @@ struct MapPage: View {
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: {}) {
+                Button(action: {
+                    navigationManager.navigate(to: .user)
+                }) {
                     Label("User", systemImage: "person")
                 }
             }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button(action: {  }) {
+                Button(action: {
+                    navigationManager.navigate(to: .search)
+                }) {
                     Label("Search", systemImage: "magnifyingglass")
                 }
                 Menu {
                     Button(action: {
-                        
+                        // TODO: 分享功能
                     }) {
                         Label("分享", systemImage: "mappin")
                     }
                     Divider()
-                    Button(action: { }) {
+                    Button(action: {
+                        // TODO: 数据导出功能
+                    }) {
                         Label("数据导出", systemImage: "square.and.arrow.up")
                     }
                 } label: {
