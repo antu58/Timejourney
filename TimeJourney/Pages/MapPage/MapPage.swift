@@ -13,13 +13,30 @@ struct MapPage: View {
     @State private var mapPosition = MapCameraPosition.automatic
     @State private var timelineState = TimelineState()
     @State private var isSingleLocation: Bool = false
+    @State private var marker: MapMarker? = nil
     @Environment(NavigationManager.self) private var navigationManager
 
     var body: some View {
         MapReader { mapProxy in
             ZStack {
-                Map(position: $mapPosition)
-                    .mapStyle(.standard)
+                Map(position: $mapPosition) {
+                    if let marker = marker {
+                        Annotation("当前位置", coordinate: marker.coordinate) {
+                            DraggableMarker(
+                                coordinate: Binding(
+                                    get: { marker.coordinate },
+                                    set: { newCoordinate in
+                                        if let marker = self.marker {
+                                            self.marker = MapMarker(id: marker.id, coordinate: newCoordinate)
+                                        }
+                                    }
+                                ),
+                                mapProxy: mapProxy
+                            )
+                        }
+                    }
+                }
+                .mapStyle(.standard)
 
                 VStack {
                     Spacer()
@@ -191,6 +208,8 @@ struct MapPage: View {
                     let span = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
                     let region = MKCoordinateRegion(center: coordinate, span: span)
                     mapPosition = .region(region)
+                    // 在地图上添加 marker
+                    marker = MapMarker(id: UUID(), coordinate: coordinate)
                     isSingleLocation = false
                 }
             } catch {
@@ -303,7 +322,53 @@ private class ContinuousLocationDelegate: NSObject, CLLocationManagerDelegate {
     }
 }
 
+// MARK: - Marker 数据模型和视图
 
+/// 地图标记数据模型
+struct MapMarker: Identifiable {
+    let id: UUID
+    var coordinate: CLLocationCoordinate2D
+}
+
+/// 可拖动的自定义 Marker 视图
+struct DraggableMarker: View {
+    @Binding var coordinate: CLLocationCoordinate2D
+    let mapProxy: MapProxy
+    @State private var isDragging: Bool = false
+    
+    var body: some View {
+        Image(systemName: "mappin.circle.fill")
+            .font(.system(size: 32))
+            .foregroundStyle(.red)
+            .background {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 28, height: 28)
+            }
+            .scaleEffect(isDragging ? 1.2 : 1.0)
+            .shadow(color: .black.opacity(isDragging ? 0.3 : 0.1), radius: isDragging ? 8 : 4)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isDragging)
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        if !isDragging {
+                            isDragging = true
+                        }
+                        // 使用全局坐标直接转换为地图坐标
+                        if let newCoordinate = mapProxy.convert(value.location, from: .global) {
+                            coordinate = newCoordinate
+                        }
+                    }
+                    .onEnded { value in
+                        // 最终更新位置
+                        if let newCoordinate = mapProxy.convert(value.location, from: .global) {
+                            coordinate = newCoordinate
+                        }
+                        isDragging = false
+                    }
+            )
+    }
+}
 
 #Preview {
     NavigationStack {
