@@ -1,0 +1,12 @@
+[
+  {
+    "label": "Debug Swift",
+    "build": {
+      "command": "swift",
+      "args": ["build"]
+    },
+    "program": "$ZED_WORKTREE_ROOT/.build/debug/TimeJourney",
+    "request": "launch",
+    "adapter": "Swift"
+  }
+]
