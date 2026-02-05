@@ -9,15 +9,15 @@ import Foundation
 import Observation
 
 /// 时间线状态管理器
-/// 管理时间线滚动条的状态，支持从1970年到当前时间的时间范围
+/// 管理时间线滚动条的状态，默认支持从当前时间向前 20 年的时间范围
 @Observable
 final class TimelineState {
     
     /// 当前选中的时间
     var selectedDate: Date
     
-    /// 时间范围起始时间（UTC 时间戳开始：1970年1月1日）
-    let startDate: Date
+    /// 时间范围起始时间
+    var startDate: Date
     
     /// 时间范围结束时间（当前时间）
     var endDate: Date
@@ -31,13 +31,22 @@ final class TimelineState {
     /// 每个月份的宽度（像素）
     let monthWidth: CGFloat = 20
     
+    /// 默认可向前滚动的年数
+    let pastYears: Int
+    
     /// 初始化
     /// - Parameter initialDate: 初始选中的时间，默认为当前时间
-    init(initialDate: Date = Date()) {
+    /// - Parameter pastYears: 默认可向前滚动的年数
+    init(initialDate: Date = Date(), pastYears: Int = 20) {
+        let now = Date()
+        let safePastYears = max(0, pastYears)
+        let start = TimelineState.startDate(for: now, pastYears: safePastYears)
+        
+        self.endDate = now
+        self.pastYears = safePastYears
+        self.startDate = start
         self.selectedDate = initialDate
-        self.endDate = Date()
-        // UTC 时间戳开始时间：1970年1月1日
-        self.startDate = Date(timeIntervalSince1970: 0)
+        updateSelectedDate(initialDate)
     }
     
     /// 获取从开始到结束的总年数
@@ -119,6 +128,7 @@ final class TimelineState {
     /// 滚动到当前时间
     func scrollToNow() {
         endDate = Date()
+        startDate = TimelineState.startDate(for: endDate, pastYears: pastYears)
         scrollTo(date: endDate)
     }
     
@@ -128,5 +138,18 @@ final class TimelineState {
         formatter.dateFormat = "yyyy年M月"
         return formatter.string(from: selectedDate)
     }
-}
 
+    /// 计算起始时间（当前时间向前 N 年的 1 月 1 日）
+    private static func startDate(for endDate: Date, pastYears: Int) -> Date {
+        let calendar = Calendar.current
+        let endYear = calendar.component(.year, from: endDate)
+        let startYear = endYear - max(0, pastYears)
+        
+        var components = DateComponents()
+        components.year = startYear
+        components.month = 1
+        components.day = 1
+        
+        return calendar.date(from: components) ?? endDate
+    }
+}

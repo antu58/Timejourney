@@ -31,12 +31,14 @@ struct ContentView: View {
     @ViewBuilder
     private func destinationView(for destination: NavigationDestination) -> some View {
         switch destination {
-        case .guide:
-            GuidePage()
+        case .guide(let groupId):
+            GuidePage(groupId: groupId)
         case .search:
             SearchPage()
         case .user:
             UserPage()
+        case .placeDetail(let id):
+            PlaceDetailPage(placeId: id)
         default:
             // 其他导航目标由各自页面处理
             EmptyView()

@@ -6,201 +6,258 @@
 //
 
 import SwiftUI
+import SwiftData
 
-/// 指南页面 - 使用 NavigationManager 导航进入
+/// 指南页面 - 显示当前指南内的地点和路线
 struct GuidePage: View {
+    let groupId: UUID?
+
+    @Environment(\.modelContext) private var modelContext
     @Environment(NavigationManager.self) private var navigationManager
+    @Query private var groups: [GroupItem]
+    @Query(sort: \PlaceItem.arrivalAt, order: .reverse) private var places: [PlaceItem]
+    @Query(sort: \RouteItem.createdAt, order: .reverse) private var routes: [RouteItem]
 
-    // 模拟数据 - 在实际应用中可以从数据管理器获取
-    @State private var routes: [RouteData] = [
-        RouteData(id: "guide_1", title: "城市探索", description: "发现城市隐藏的角落", distance: "4.5 km", duration: "1.8 h"),
-        RouteData(id: "guide_2", title: "历史之旅", description: "追溯城市历史足迹", distance: "6.2 km", duration: "2.5 h"),
-        RouteData(id: "guide_3", title: "美食路线", description: "品尝地道美食", distance: "3.8 km", duration: "2.0 h")
-    ]
-
-    @State private var locations: [DetailPageData] = [
-        DetailPageData(id: "guide_loc_1", title: "观景台", description: "俯瞰城市全景", count: 25),
-        DetailPageData(id: "guide_loc_2", title: "老街区", description: "感受历史氛围", count: 18),
-        DetailPageData(id: "guide_loc_3", title: "艺术中心", description: "现代艺术展览", count: 12),
-        DetailPageData(id: "guide_loc_4", title: "中央公园", description: "城市绿肺", count: 8)
-    ]
-
-    @State private var selectedTab: GuideTabType = .route
+    @State private var selectedTab: GuideTab = .places
+    @State private var isShowingEditSheet = false
+    @State private var isShowingDeleteConfirm = false
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 0) {
-                // 顶部 Tab 选择器
-                Picker("选择类型", selection: $selectedTab) {
-                    ForEach(GuideTabType.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding()
+        VStack(spacing: 0) {
+            tabBar
 
-                // 根据选中的 Tab 显示对应内容
-                Group {
-                    switch selectedTab {
-                    case .route:
-                        routeListView
-                    case .location:
-                        locationListView
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .navigationTitle("指南")
-        .navigationBarTitleDisplayMode(.large)
-        .navigationDestination(for: NavigationDestination.self) { destination in
-            switch destination {
-            case .detail(let id):
-                // 查找对应的数据并显示详情页
-                if let location = locations.first(where: { $0.id == id }) {
-                    DetailPage(data: location) { updatedData in
-                        // 更新数据的逻辑
-                        if let index = locations.firstIndex(where: { $0.id == updatedData.id }) {
-                            locations[index] = updatedData
+            List {
+                switch selectedTab {
+                case .places:
+                    if displayPlaces.isEmpty {
+                        Text("暂无地点")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(displayPlaces, id: \.id) { place in
+                            Button(action: {
+                                navigationManager.navigate(to: .placeDetail(id: place.id))
+                            }) {
+                                PlaceRow(place: place)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                } else {
-                    Text("未找到详情数据")
+                case .routes:
+                    if displayRoutes.isEmpty {
+                        Text("暂无路线")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(displayRoutes, id: \.id) { route in
+                            RouteRow(route: route)
+                        }
+                    }
                 }
-            default:
-                EmptyView()
             }
+            .listStyle(.plain)
         }
+        .navigationTitle(selectedGroup?.name ?? "全部指南")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            #if os(iOS)
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button(action: navigateToSearch) {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button(action: addNewLocation) {
-                        Label("添加地点", systemImage: "mappin.circle.fill")
+                    Button("编辑指南") {
+                        isShowingEditSheet = true
                     }
-                    Button(action: addNewRoute) {
-                        Label("添加路线", systemImage: "record.circle.fill")
+                    .disabled(selectedGroup == nil)
+
+                    Button("删除指南", role: .destructive) {
+                        isShowingDeleteConfirm = true
                     }
-                    Button(action: importData) {
-                        Label("选择", systemImage: "photo")
-                    }
+                    .disabled(selectedGroup == nil)
                 } label: {
-                    Label("更多", systemImage: "ellipsis.circle")
+                    Label("更多", systemImage: "ellipsis")
                 }
             }
-            #endif
+        }
+        .sheet(isPresented: $isShowingEditSheet) {
+            if let group = selectedGroup {
+                EditGuideSheet(group: group)
+            }
+        }
+        .confirmationDialog("删除指南？", isPresented: $isShowingDeleteConfirm, titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                deleteSelectedGuide()
+            }
+        } message: {
+            Text("删除后，该指南下的地点/路线仍保留，只移除分组。")
         }
     }
 
-    // 路线列表视图
-    private var routeListView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(routes) { route in
-                Button(action: {
-                    // 点击路线的处理逻辑
-                    print("点击了路线: \(route.id)")
-                    // 可以在这里添加路线详情导航
-                }) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "map.fill")
-                                .foregroundStyle(.blue)
-                            Text(route.title)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                        }
+    private var tabBar: some View {
+        Picker("类型", selection: $selectedTab) {
+            ForEach(GuideTab.allCases, id: \.self) { tab in
+                Text(tab.title).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
 
-                        Text(route.description)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+    private var selectedGroup: GroupItem? {
+        guard let groupId else { return nil }
+        return groups.first(where: { $0.id == groupId })
+    }
 
-                        HStack(spacing: 16) {
-                            Label(route.distance, systemImage: "ruler")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                            Label(route.duration, systemImage: "clock")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
+    private var displayPlaces: [PlaceItem] {
+        if let group = selectedGroup {
+            return group.places.sorted { $0.arrivalAt > $1.arrivalAt }
+        }
+        return places
+    }
+
+    private var displayRoutes: [RouteItem] {
+        if let group = selectedGroup {
+            return group.routes.sorted { $0.createdAt > $1.createdAt }
+        }
+        return routes
+    }
+
+    private func deleteSelectedGuide() {
+        guard let group = selectedGroup else { return }
+        group.placeLinks.forEach { modelContext.delete($0) }
+        group.routeLinks.forEach { modelContext.delete($0) }
+        modelContext.delete(group)
+        navigationManager.goBack()
+    }
+}
+
+private enum GuideTab: String, CaseIterable {
+    case places
+    case routes
+
+    var title: String {
+        switch self {
+        case .places:
+            return "地点"
+        case .routes:
+            return "路线"
+        }
+    }
+}
+
+private struct EditGuideSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let group: GroupItem
+
+    @State private var name: String
+
+    init(group: GroupItem) {
+        self.group = group
+        _name = State(initialValue: group.name)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("指南名称")
+                    .font(.headline)
+                TextField("请输入名称", text: $name)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .padding()
+            .navigationTitle("编辑指南")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
                     }
-                    .padding()
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(12)
                 }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal)
-    }
-
-    // 地点列表视图
-    private var locationListView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(locations) { location in
-                Button(action: {
-                    // 导航到详情页
-                    navigationManager.navigate(to: .detail(id: location.id))
-                }) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "mappin.circle.fill")
-                                .foregroundStyle(.red)
-                            Text(location.title)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                        }
-
-                        Text(location.description)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        Text("标记次数: \(location.count)")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        save()
                     }
-                    .padding()
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(12)
+                    .disabled(!isSaveEnabled)
                 }
-                .buttonStyle(.plain)
+            }
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var isSaveEnabled: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func save() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        group.name = trimmed
+        dismiss()
+    }
+}
+
+private struct PlaceRow: View {
+    let place: PlaceItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 18)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(place.name ?? "未命名地点")
+                    .font(.headline)
+                Text(place.addressShort ?? place.addressFull ?? "未知地址")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(formattedDate(place.arrivalAt))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}
+
+private struct RouteRow: View {
+    let route: RouteItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "map")
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(route.name ?? "未命名路线")
+                    .font(.headline)
+                if let summary = route.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(route.sourceTypeRaw == RouteSourceType.recorded.rawValue ? "轨迹记录" : "路线规划")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if let distance = route.distanceMeters {
+                Text(String(format: "%.1f km", distance / 1000))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal)
-    }
-
-    // MARK: - Toolbar Actions
-
-    /// 导航到搜索页面
-    private func navigateToSearch() {
-        navigationManager.navigate(to: .search)
-    }
-
-    /// 添加新地点
-    private func addNewLocation() {
-        navigationManager.navigate(to: .markLocation)
-    }
-
-    /// 添加新路线
-    private func addNewRoute() {
-        navigationManager.navigate(to: .recordRoute)
-    }
-
-    /// 导入数据（选择照片）
-    private func importData() {
-        navigationManager.navigate(to: .importPhotoLocation)
+        .padding(.vertical, 4)
     }
 }
 
 #Preview {
     NavigationStack {
-        GuidePage()
+        GuidePage(groupId: nil)
             .environment(NavigationManager())
     }
 }

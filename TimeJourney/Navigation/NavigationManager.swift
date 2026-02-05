@@ -13,12 +13,13 @@ enum NavigationDestination: Hashable {
     case search
     case user  // 用户页面
     case detail(id: String)  // 传入参数：详情页面的 ID
+    case placeDetail(id: UUID) // 地点详情页
     case markLocation  // 标记当前位置
     case recordRoute  // 开始记录路线
     case importPhotoLocation  // 获取照片位置
     case exportData  // 数据导出
     case fullList(title: String, category: String)  // 完整列表页面（传入标题和分类）
-    case guide  // 指南页面
+    case guide(groupId: UUID?)  // 指南页面（当前分组）
     // 可以继续添加其他导航目标
     // case settings
 }
@@ -45,4 +46,3 @@ final class NavigationManager {
         path.removeLast(path.count)
     }
 }
-

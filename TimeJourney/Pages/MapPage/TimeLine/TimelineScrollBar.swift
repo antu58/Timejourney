@@ -15,7 +15,7 @@ private struct ScrollGeometryInfo: Equatable {
 }
 
 /// 时间线滚动条组件
-/// 显示从1970年到当前时间的时间线，支持左右滚动选择日期
+/// 默认显示从当前时间向前 20 年到当前时间的时间线，支持左右滚动选择日期
 struct TimelineScrollBar: View {
     
     /// 时间线状态（与父组件同步）
@@ -36,6 +36,14 @@ struct TimelineScrollBar: View {
         return yearMonthID(year: year, month: month)
     }
     
+    /// 当前选中日期对应的滚动目标 ID
+    private var selectedScrollID: String {
+        let calendar = Calendar.current
+        let year = calendar.component(.year, from: state.selectedDate)
+        let month = calendar.component(.month, from: state.selectedDate)
+        return yearMonthID(year: year, month: month)
+    }
+    
     var body: some View {
         GeometryReader { geometry in
             let viewWidth = geometry.size.width
@@ -49,7 +57,7 @@ struct TimelineScrollBar: View {
                                 yearView(year: year, isLastYear: year == state.endYear)
                             }
                         }
-                        // 左侧 padding 允许1970年1月滚动到中心
+                        // 左侧 padding 允许最早月份滚动到中心
                         .padding(.leading, centerX)
                         // 右侧 padding 允许当前月份滚动到中心
                         .padding(.trailing, centerX)
@@ -64,6 +72,15 @@ struct TimelineScrollBar: View {
                     } action: { oldValue, newValue in
                         // 只有在初始滚动完成后才更新选中日期
                         if hasInitialScrolled {
+                            // 当容器宽度变化时（屏幕缩放/旋转），保持当前选中日期居中
+                            if oldValue.containerWidth != newValue.containerWidth {
+                                let targetID = selectedScrollID
+                                DispatchQueue.main.async {
+                                    proxy.scrollTo(targetID, anchor: .center)
+                                }
+                                return
+                            }
+                            
                             // 计算最大有效偏移量（当前月份刻度在中轴时的偏移）
                             let currentMonthPosition = CGFloat(state.endYear - state.startYear) * 12 * state.monthWidth
                                 + CGFloat(state.currentMonth - 1) * state.monthWidth
@@ -254,4 +271,3 @@ struct TimelineScrollBar: View {
     }
     .background(Color.gray.opacity(0.3))
 }
-
