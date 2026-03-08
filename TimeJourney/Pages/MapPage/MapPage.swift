@@ -54,7 +54,7 @@ struct MapPage: View {
                     ForEach(visiblePlaces, id: \.id) { place in
                         Annotation(truncatedPlaceTitle(place.name), coordinate: place.coordinate, anchor: .bottom) {
                             Button(action: {
-                                navigationManager.navigate(to: .placeDetail(id: place.id))
+                                navigationManager.navigate(to: .placeDetail(id: place.id, groupId: selectedGroupId))
                             }) {
                                 PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 22)
                             }
@@ -155,28 +155,18 @@ struct MapPage: View {
                         TimelineScrollBar(state: timelineState)
                         
                         // 添加按钮
-                        Menu {
-                            Button(action: {
-                                Task {
-                                    await markCurrentLocation()
-                                }
-                            }) {
-                                Label("标记当前位置", systemImage: "mappin")
+                        Button(action: {
+                            Task {
+                                await addCurrentLocationPlaceholder()
                             }
-                            .disabled(isSavingCurrentLocation)
-                            Divider()
-                            Button(action: {
-                                
-                            }) {
-                                Label("开始记录路线", systemImage: "record.circle")
-                            }
-                        } label: {
+                        }) {
                             Image(systemName: "plus")
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(.black)
                                 .frame(width: 44, height: 44)
                                 .glassEffect(.regular, in: Circle())
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding()
 
@@ -318,6 +308,40 @@ struct MapPage: View {
             insertPlaceAndAttachToGuide(place)
 
             moveMap(to: place.coordinate)
+        } catch {
+            print("标记当前位置失败: \(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
+    private func addCurrentLocationPlaceholder() async {
+        guard !isSavingCurrentLocation else { return }
+        isSavingCurrentLocation = true
+        defer { isSavingCurrentLocation = false }
+
+        do {
+            guard let location = try await fetchCurrentLocation() else {
+                return
+            }
+            showsUserLocation = true
+
+            let coordinate = location.coordinate
+            let place = PlaceItem(
+                name: "新地点",
+                addressFull: "未知",
+                addressShort: "未知",
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude
+            )
+            place.arrivalAt = Date()
+            place.mapIconName = "round_pushpin_round_pushpin_3d"
+            timelineState.scrollToNow()
+            insertPlaceAndAttachToGuide(place)
+            moveMap(to: coordinate)
+
+            if let mapItem = await reverseGeocode(location: location) {
+                applyMapItem(mapItem, to: place)
+            }
         } catch {
             print("标记当前位置失败: \(error.localizedDescription)")
         }

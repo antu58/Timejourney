@@ -37,8 +37,8 @@ struct ContentView: View {
             SearchPage()
         case .user:
             UserPage()
-        case .placeDetail(let id):
-            PlaceDetailPage(placeId: id)
+        case .placeDetail(let id, let groupId):
+            PlaceDetailPage(placeId: id, groupId: groupId)
         case .routeDetail(let id):
             RouteDetailPage(routeId: id)
         default:

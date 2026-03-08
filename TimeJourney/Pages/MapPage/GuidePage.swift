@@ -18,43 +18,23 @@ struct GuidePage: View {
     @Query(sort: \PlaceItem.arrivalAt, order: .reverse) private var places: [PlaceItem]
     @Query(sort: \RouteItem.arrivalAt, order: .reverse) private var routes: [RouteItem]
 
-    @State private var selectedTab: GuideTab = .places
     @State private var isShowingEditSheet = false
     @State private var isShowingDeleteConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
-            tabBar
-
             List {
-                switch selectedTab {
-                case .places:
-                    if displayPlaces.isEmpty {
-                        Text("暂无地点")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(displayPlaces, id: \.id) { place in
-                            Button(action: {
-                                navigationManager.navigate(to: .placeDetail(id: place.id))
-                            }) {
-                                PlaceRow(place: place)
-                            }
-                            .buttonStyle(.plain)
+                if displayPlaces.isEmpty {
+                    Text("暂无地点")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(displayPlaces, id: \.id) { place in
+                        Button(action: {
+                            navigationManager.navigate(to: .placeDetail(id: place.id, groupId: selectedGroup?.id))
+                        }) {
+                            PlaceRow(place: place)
                         }
-                    }
-                case .routes:
-                    if displayRoutes.isEmpty {
-                        Text("暂无路线")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(displayRoutes, id: \.id) { route in
-                            Button(action: {
-                                navigationManager.navigate(to: .routeDetail(id: route.id))
-                            }) {
-                                RouteRow(route: route)
-                            }
-                            .buttonStyle(.plain)
-                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -93,18 +73,6 @@ struct GuidePage: View {
         }
     }
 
-    private var tabBar: some View {
-        Picker("类型", selection: $selectedTab) {
-            ForEach(GuideTab.allCases, id: \.self) { tab in
-                Text(tab.title).tag(tab)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-    }
-
     private var selectedGroup: GroupItem? {
         guard let groupId else { return nil }
         return groups.first(where: { $0.id == groupId })
@@ -130,20 +98,6 @@ struct GuidePage: View {
         group.routeLinks.forEach { modelContext.delete($0) }
         modelContext.delete(group)
         navigationManager.goBack()
-    }
-}
-
-private enum GuideTab: String, CaseIterable {
-    case places
-    case routes
-
-    var title: String {
-        switch self {
-        case .places:
-            return "地点"
-        case .routes:
-            return "路线"
-        }
     }
 }
 

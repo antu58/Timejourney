@@ -10,6 +10,7 @@ import SwiftData
 
 struct PlaceDetailPage: View {
     let placeId: UUID
+    let groupId: UUID?
 
     @Query private var places: [PlaceItem]
     @Query(sort: \GroupItem.createdAt, order: .forward) private var groups: [GroupItem]
@@ -17,11 +18,13 @@ struct PlaceDetailPage: View {
     @State private var isShowingIconPicker = false
     @State private var isShowingDeleteConfirm = false
     @State private var isShowingGuidePicker = false
+    @State private var isShowingDeleteSheet = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    init(placeId: UUID) {
+    init(placeId: UUID, groupId: UUID? = nil) {
         self.placeId = placeId
+        self.groupId = groupId
         _places = Query(filter: #Predicate<PlaceItem> { $0.id == placeId })
     }
 
@@ -83,7 +86,7 @@ struct PlaceDetailPage: View {
                             isShowingGuidePicker = true
                         }
                         Button("删除地点", role: .destructive) {
-                            isShowingDeleteConfirm = true
+                            isShowingDeleteSheet = true
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -107,16 +110,6 @@ struct PlaceDetailPage: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
             }
-            .confirmationDialog(
-                "确定要删除这个地点吗？",
-                isPresented: $isShowingDeleteConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("删除地点", role: .destructive) {
-                    deletePlace(place)
-                }
-                Button("取消", role: .cancel) { }
-            }
             .sheet(isPresented: $isShowingAddContent) {
                 AddContentSheet(place: place)
             }
@@ -131,6 +124,17 @@ struct PlaceDetailPage: View {
             .sheet(isPresented: $isShowingGuidePicker) {
                 GuidePickerSheet(place: place, groups: groups)
             }
+            .sheet(isPresented: $isShowingDeleteSheet) {
+                DeletePlaceSheet(
+                    hasGuides: groupId != nil,
+                    onDelete: {
+                        deletePlace(place)
+                    },
+                    onRemoveFromGuides: {
+                        removePlaceFromCurrentGuide(place)
+                    }
+                )
+            }
         } else {
             ProgressView("加载中...")
         }
@@ -144,6 +148,14 @@ struct PlaceDetailPage: View {
             modelContext.delete(content)
         }
         modelContext.delete(place)
+        modelContext.processPendingChanges()
+        dismiss()
+    }
+
+    private func removePlaceFromCurrentGuide(_ place: PlaceItem) {
+        guard let groupId else { return }
+        let links = place.groupLinks.filter { $0.group?.id == groupId }
+        links.forEach { modelContext.delete($0) }
         modelContext.processPendingChanges()
         dismiss()
     }
@@ -165,6 +177,61 @@ struct PlaceDetailPage: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+}
+
+private struct DeletePlaceSheet: View {
+    let hasGuides: Bool
+    let onDelete: () -> Void
+    let onRemoveFromGuides: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("删除地点")
+                .font(.headline)
+                .padding(.top, 8)
+
+            if hasGuides {
+                Button {
+                    dismiss()
+                    onRemoveFromGuides()
+                } label: {
+                    Text("移出指南")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(Color.red)
+                        .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button(role: .destructive) {
+                dismiss()
+                onDelete()
+            } label: {
+                Text("彻底删除")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundStyle(.white)
+                    .background(Color.red, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            Button("取消", role: .cancel) {
+                dismiss()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .foregroundStyle(.primary)
+            .background(Color.gray.opacity(0.2), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .buttonStyle(.plain)
+            .padding(.bottom, 8)
+        }
+        .padding(.horizontal, 20)
+        .presentationDetents([.height(hasGuides ? 220 : 180)])
+        .presentationDragIndicator(.visible)
     }
 }
 

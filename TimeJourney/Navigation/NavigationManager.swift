@@ -13,7 +13,7 @@ enum NavigationDestination: Hashable {
     case search
     case user  // 用户页面
     case detail(id: String)  // 传入参数：详情页面的 ID
-    case placeDetail(id: UUID) // 地点详情页
+    case placeDetail(id: UUID, groupId: UUID?) // 地点详情页
     case routeDetail(id: UUID) // 路线详情页
     case markLocation  // 标记当前位置
     case recordRoute  // 开始记录路线
