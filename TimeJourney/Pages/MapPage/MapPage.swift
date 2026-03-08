@@ -511,11 +511,10 @@ struct MapPage: View {
 
     @MainActor
     private func insertPlaceAndAttachToGuide(_ place: PlaceItem) {
-        timelineState.scrollToNow()
-
         modelContext.insert(place)
         attachPlaceToSelectedGuide(place)
         modelContext.processPendingChanges()
+        timelineState.scrollToNow()
     }
 
     @MainActor

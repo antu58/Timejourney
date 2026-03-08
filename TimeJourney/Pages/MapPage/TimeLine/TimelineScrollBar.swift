@@ -117,6 +117,10 @@ struct TimelineScrollBar: View {
                         let targetID = selectedScrollID
                         proxy.scrollTo(targetID, anchor: .trailing)
                     }
+                    .onChange(of: state.startYear) { _, _ in
+                        guard hasInitialScrolled else { return }
+                        proxy.scrollTo(selectedScrollID, anchor: .trailing)
+                    }
                 }
                 
             }

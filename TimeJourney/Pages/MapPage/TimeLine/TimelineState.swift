@@ -126,12 +126,11 @@ final class TimelineState {
         scrollOffset = scrollPosition(for: selectedDate)
     }
     
-    /// 滚动到当前时间
+    /// 滚动到当前时间（不重置 startDate，由 updateStartDate 统一管理）
     func scrollToNow() {
         let now = Date()
         endDate = TimelineState.maxDate(from: now)
-        startDate = TimelineState.startDate(for: endDate, pastYears: pastYears)
-        scrollTo(date: now)
+        updateSelectedDate(now)
     }
     
     /// 格式化显示选中的日期
