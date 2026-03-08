@@ -25,8 +25,7 @@ struct MapPage: View {
     @State private var isShowingGroupPicker: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isProcessingPhotoLocation: Bool = false
-    @State private var isShowingPhotoLocationAlert: Bool = false
-    @State private var photoLocationAlertMessage: String = ""
+    @State private var activeAlert: ActiveAlert?
     @State private var isShowingPhotosPicker: Bool = false
     @State private var photoProcessingToken = UUID()
     @State private var didInitialMapFit: Bool = false
@@ -56,7 +55,7 @@ struct MapPage: View {
                             Button(action: {
                                 navigationManager.navigate(to: .placeDetail(id: place.id, groupId: selectedGroupId))
                             }) {
-                                PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 22)
+                                PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 24)
                             }
                             .buttonStyle(.plain)
                         }
@@ -156,6 +155,7 @@ struct MapPage: View {
                         
                         // 添加按钮
                         Button(action: {
+                            print("[MapPage] 点击添加当前位置")
                             Task {
                                 await addCurrentLocationPlaceholder()
                             }
@@ -167,24 +167,40 @@ struct MapPage: View {
                                 .glassEffect(.regular, in: Circle())
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            print("[MapPage] plus button tap gesture")
+                        })
                     }
                     .padding()
 
                 }
             }
         }
-        .alert("无法识别照片位置", isPresented: $isShowingPhotoLocationAlert) {
-            Button("确定", role: .cancel) { }
-        } message: {
-            Text(photoLocationAlertMessage)
-        }
         .photosPicker(isPresented: $isShowingPhotosPicker, selection: $selectedPhotoItem, matching: .images)
-        .alert("正在解析照片位置…", isPresented: $isProcessingPhotoLocation) {
-            Button("取消", role: .cancel) {
-                isProcessingPhotoLocation = false
+        .alert(item: $activeAlert) { alert in
+            switch alert.type {
+            case .photoLocationFailed:
+                return Alert(
+                    title: Text("无法识别照片位置"),
+                    message: Text(alert.message ?? ""),
+                    dismissButton: .cancel(Text("确定"))
+                )
+            case .locationPermission:
+                return Alert(
+                    title: Text("无法获取位置"),
+                    message: Text(alert.message ?? ""),
+                    dismissButton: .cancel(Text("确定"))
+                )
+            case .photoProcessing:
+                return Alert(
+                    title: Text("正在解析照片位置…"),
+                    message: Text("请稍候"),
+                    dismissButton: .cancel(Text("取消"), action: {
+                        isProcessingPhotoLocation = false
+                        activeAlert = nil
+                    })
+                )
             }
-        } message: {
-            Text("请稍候")
         }
         .toolbar {
             #if os(iOS)
@@ -257,11 +273,16 @@ struct MapPage: View {
     /// 单次定位
     @MainActor
     func singleLocation() async  {
+        print("[MapPage] singleLocation start")
         isSingleLocation = true
-        defer { isSingleLocation = false }
+        defer {
+            isSingleLocation = false
+            print("[MapPage] singleLocation end")
+        }
 
         do {
             guard let location = try await fetchCurrentLocation() else {
+                print("[MapPage] singleLocation no location")
                 return
             }
             showsUserLocation = true
@@ -284,62 +305,81 @@ struct MapPage: View {
             let region = MKCoordinateRegion(center: coordinate, span: span)
             mapPosition = .region(region)
         } catch {
-            print("定位失败: \(error.localizedDescription)")
+            print("[MapPage] singleLocation failed: \(error.localizedDescription)")
         }
     }
 
     /// 标记当前位置并保存为地点
     @MainActor
     private func markCurrentLocation() async {
-        guard !isSavingCurrentLocation else { return }
+        print("[MapPage] markCurrentLocation start")
+        guard !isSavingCurrentLocation else {
+            print("[MapPage] markCurrentLocation ignored: already saving")
+            return
+        }
         isSavingCurrentLocation = true
-        defer { isSavingCurrentLocation = false }
+        defer {
+            isSavingCurrentLocation = false
+            print("[MapPage] markCurrentLocation end")
+        }
 
         do {
             guard let location = try await fetchCurrentLocation() else {
+                print("[MapPage] markCurrentLocation no location")
                 return
             }
             showsUserLocation = true
 
-            let mapItem = await reverseGeocode(location: location)
-            let place = mapItem.map { PlaceItem(mapItem: $0) } ?? PlaceItem(location: location)
+            let adjustedCoordinate = CoordinateConverter.convertIfNeeded(location.coordinate)
+            let adjustedLocation = CLLocation(latitude: adjustedCoordinate.latitude, longitude: adjustedCoordinate.longitude)
+            let mapItem = await reverseGeocode(location: adjustedLocation)
+            let place = mapItem.map { PlaceItem(mapItem: $0) } ?? PlaceItem(location: adjustedLocation)
             place.mapIconName = "round_pushpin_round_pushpin_3d"
 
             insertPlaceAndAttachToGuide(place)
 
             moveMap(to: place.coordinate)
         } catch {
-            print("标记当前位置失败: \(error.localizedDescription)")
+            print("[MapPage] markCurrentLocation failed: \(error.localizedDescription)")
         }
     }
 
     @MainActor
     private func addCurrentLocationPlaceholder() async {
-        guard !isSavingCurrentLocation else { return }
+        print("[MapPage] addCurrentLocationPlaceholder start")
+        guard !isSavingCurrentLocation else {
+            print("[MapPage] addCurrentLocationPlaceholder ignored: already saving")
+            return
+        }
         isSavingCurrentLocation = true
-        defer { isSavingCurrentLocation = false }
+        defer {
+            isSavingCurrentLocation = false
+            print("[MapPage] addCurrentLocationPlaceholder end")
+        }
 
         do {
             guard let location = try await fetchCurrentLocation() else {
+                print("[MapPage] addCurrentLocationPlaceholder no location")
                 return
             }
             showsUserLocation = true
 
-            let coordinate = location.coordinate
+            let adjustedCoordinate = CoordinateConverter.convertIfNeeded(location.coordinate)
+            let adjustedLocation = CLLocation(latitude: adjustedCoordinate.latitude, longitude: adjustedCoordinate.longitude)
             let place = PlaceItem(
                 name: "新地点",
                 addressFull: "未知",
                 addressShort: "未知",
-                latitude: coordinate.latitude,
-                longitude: coordinate.longitude
+                latitude: adjustedCoordinate.latitude,
+                longitude: adjustedCoordinate.longitude
             )
             place.arrivalAt = Date()
             place.mapIconName = "round_pushpin_round_pushpin_3d"
             timelineState.scrollToNow()
             insertPlaceAndAttachToGuide(place)
-            moveMap(to: coordinate)
+            moveMap(to: adjustedCoordinate)
 
-            if let mapItem = await reverseGeocode(location: location) {
+            if let mapItem = await reverseGeocode(location: adjustedLocation) {
                 applyMapItem(mapItem, to: place)
             }
         } catch {
@@ -501,10 +541,13 @@ struct MapPage: View {
         mapPosition.region?.span
     }
 
+    @MainActor
     private func fetchCurrentLocation() async throws -> CLLocation? {
+        print("[MapPage] fetchCurrentLocation request permission")
         let hasPermission = await LocationUtil.checkAndRequestPermission()
+        print("[MapPage] fetchCurrentLocation permission=\(hasPermission)")
         guard hasPermission else {
-            print("权限不足，无法获取当前位置")
+            activeAlert = ActiveAlert(type: .locationPermission, message: "没有位置权限，无法保存地点")
             return nil
         }
 
@@ -515,8 +558,10 @@ struct MapPage: View {
             let delegate = LocationDelegate(continuation: continuation)
             manager.delegate = delegate
             objc_setAssociatedObject(manager, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            print("[MapPage] fetchCurrentLocation requestLocation")
             manager.requestLocation()
         }
+        print("[MapPage] fetchCurrentLocation got location \(location.coordinate.latitude), \(location.coordinate.longitude)")
         return location
     }
 
@@ -571,14 +616,19 @@ struct MapPage: View {
 
     @MainActor
     private func handlePhotoSelection(_ item: PhotosPickerItem) {
+        guard !isProcessingPhotoLocation else { return }
         let token = UUID()
         photoProcessingToken = token
         isProcessingPhotoLocation = true
+        activeAlert = ActiveAlert(type: .photoProcessing, message: nil)
         Task {
             defer {
                 Task { @MainActor in
                     isProcessingPhotoLocation = false
                     selectedPhotoItem = nil
+                    if activeAlert?.type == .photoProcessing {
+                        activeAlert = nil
+                    }
                 }
             }
 
@@ -586,8 +636,7 @@ struct MapPage: View {
                 try? await Task.sleep(for: .seconds(60))
                 await MainActor.run {
                     guard isProcessingPhotoLocation, photoProcessingToken == token else { return }
-                    photoLocationAlertMessage = "解析超时，请稍后重试"
-                    isShowingPhotoLocationAlert = true
+                    activeAlert = ActiveAlert(type: .photoLocationFailed, message: "解析超时，请稍后重试")
                     isProcessingPhotoLocation = false
                 }
             }
@@ -595,31 +644,33 @@ struct MapPage: View {
             guard let data = try? await item.loadTransferable(type: Data.self),
                   let coordinate = extractCoordinate(from: data) else {
                 await MainActor.run {
-                    photoLocationAlertMessage = "未能识别照片中的位置信息"
-                    isShowingPhotoLocationAlert = true
+                    activeAlert = ActiveAlert(type: .photoLocationFailed, message: "未能识别照片中的位置信息")
                 }
                 return
             }
 
-            await addPlaceFromPhoto(coordinate: coordinate)
+            let adjustedCoordinate = CoordinateConverter.convertIfNeeded(coordinate)
+            guard isProcessingPhotoLocation, photoProcessingToken == token else { return }
+            await addPlaceFromPhoto(coordinate: adjustedCoordinate)
         }
     }
 
     @MainActor
     private func addPlaceFromPhoto(coordinate: CLLocationCoordinate2D) async {
-        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let adjustedCoordinate = CoordinateConverter.convertIfNeeded(coordinate)
+        let location = CLLocation(latitude: adjustedCoordinate.latitude, longitude: adjustedCoordinate.longitude)
         let place = PlaceItem(
             name: "新地点",
             addressFull: "未知",
             addressShort: "未知",
-            latitude: coordinate.latitude,
-            longitude: coordinate.longitude
+            latitude: adjustedCoordinate.latitude,
+            longitude: adjustedCoordinate.longitude
         )
         place.arrivalAt = Date()
         place.mapIconName = "round_pushpin_round_pushpin_3d"
         timelineState.scrollToNow()
         insertPlaceAndAttachToGuide(place)
-        moveMap(to: coordinate)
+        moveMap(to: adjustedCoordinate)
 
         if let mapItem = await reverseGeocode(location: location) {
             applyMapItem(mapItem, to: place)
@@ -645,8 +696,7 @@ struct MapPage: View {
         case .authorized, .limited:
             isShowingPhotosPicker = true
         default:
-            photoLocationAlertMessage = "没有照片权限，无法读取照片位置"
-            isShowingPhotoLocationAlert = true
+            activeAlert = ActiveAlert(type: .photoLocationFailed, message: "没有照片权限，无法读取照片位置")
         }
     }
 
@@ -675,14 +725,6 @@ struct MapPage: View {
         place.addressCityName = updated.addressCityName
         place.addressCityWithContext = updated.addressCityWithContext
         place.addressRegionName = updated.addressRegionName
-        place.latitude = updated.latitude
-        place.longitude = updated.longitude
-        place.horizontalAccuracy = updated.horizontalAccuracy
-        place.verticalAccuracy = updated.verticalAccuracy
-        place.altitude = updated.altitude
-        place.speed = updated.speed
-        place.course = updated.course
-        place.timestamp = updated.timestamp
         place.phoneNumber = updated.phoneNumber
         place.url = updated.url
         place.pointOfInterestCategory = updated.pointOfInterestCategory
@@ -730,6 +772,18 @@ struct MapPage: View {
         locationManager?.stopUpdatingLocation()
         locationManager = nil
     }
+}
+
+private enum ActiveAlertType {
+    case photoLocationFailed
+    case locationPermission
+    case photoProcessing
+}
+
+private struct ActiveAlert: Identifiable {
+    let id = UUID()
+    let type: ActiveAlertType
+    let message: String?
 }
 
 struct AddGuideSheet: View {
@@ -885,6 +939,7 @@ private class LocationDelegate: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard !hasResumed, let location = locations.last else { return }
         hasResumed = true
+        print("[MapPage] LocationDelegate didUpdateLocations")
         manager.stopUpdatingLocation()
         continuation.resume(returning: location)
     }
@@ -892,6 +947,7 @@ private class LocationDelegate: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         guard !hasResumed else { return }
         hasResumed = true
+        print("[MapPage] LocationDelegate didFailWithError: \(error.localizedDescription)")
         manager.stopUpdatingLocation()
         continuation.resume(throwing: error)
     }

@@ -158,7 +158,7 @@ private struct PlaceRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 18)
+            PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 20)
             VStack(alignment: .leading, spacing: 4) {
                 Text(place.name ?? "未命名地点")
                     .font(.headline)

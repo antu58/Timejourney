@@ -13,24 +13,32 @@ import CoreLocation
 final class LocationUtil {
 
     // MARK: - 权限检查
+    private static var permissionManager: CLLocationManager?
 
     /// 检查并请求位置权限（异步）
     static func checkAndRequestPermission() async -> Bool {
         let status = CLLocationManager().authorizationStatus
+        print("[LocationUtil] current authorizationStatus=\(status.rawValue)")
 
         if status == .notDetermined {
             return await withCheckedContinuation { continuation in
                 let manager = CLLocationManager()
+                permissionManager = manager
                 // 创建临时的delegate来处理权限回调
-                let delegate = PermissionDelegate(continuation: continuation)
+                let delegate = PermissionDelegate(continuation: continuation) {
+                    permissionManager = nil
+                }
                 manager.delegate = delegate
                 // 保持delegate引用
                 objc_setAssociatedObject(manager, "permissionDelegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                print("[LocationUtil] requestWhenInUseAuthorization")
                 manager.requestWhenInUseAuthorization()
             }
         }
 
-        return status == .authorizedWhenInUse || status == .authorizedAlways
+        let granted = status == .authorizedWhenInUse || status == .authorizedAlways
+        print("[LocationUtil] permission granted=\(granted)")
+        return granted
     }
 
     /// 仅检查权限状态（不请求）
@@ -50,15 +58,25 @@ final class LocationUtil {
 
 /// 临时的权限委托类，用于处理权限请求回调
 private class PermissionDelegate: NSObject, CLLocationManagerDelegate {
-    private let continuation: CheckedContinuation<Bool, Never>
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private let onFinish: () -> Void
+    private var hasResumed = false
 
-    init(continuation: CheckedContinuation<Bool, Never>) {
+    init(continuation: CheckedContinuation<Bool, Never>, onFinish: @escaping () -> Void) {
         self.continuation = continuation
+        self.onFinish = onFinish
         super.init()
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let hasPermission = manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways
+        let status = manager.authorizationStatus
+        let hasPermission = status == .authorizedWhenInUse || status == .authorizedAlways
+        print("[LocationUtil] authorization changed -> \(status.rawValue), granted=\(hasPermission)")
+        guard status != .notDetermined else { return }
+        guard !hasResumed, let continuation else { return }
+        hasResumed = true
         continuation.resume(returning: hasPermission)
+        self.continuation = nil
+        onFinish()
     }
 }

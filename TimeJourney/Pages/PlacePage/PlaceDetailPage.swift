@@ -57,7 +57,7 @@ struct PlaceDetailPage: View {
                         Text("当前图标")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 28)
+                        PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 30)
                     }
                     Button("选择图标") {
                         isShowingIconPicker = true
