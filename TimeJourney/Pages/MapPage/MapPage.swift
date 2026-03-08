@@ -18,7 +18,7 @@ struct MapPage: View {
     @State private var showsUserLocation: Bool = false
     @State private var selectedGroupId: UUID? = nil
     @State private var isShowingAddGuideSheet: Bool = false
-    @State private var isAddingPlace: Bool = false
+    @State private var isShowingGroupPicker: Bool = false
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(\.modelContext) private var modelContext
     @Query private var places: [PlaceItem]
@@ -40,7 +40,7 @@ struct MapPage: View {
                     }
 
                     ForEach(visiblePlaces, id: \.id) { place in
-                        Annotation(truncatedPlaceTitle(place.name), coordinate: place.coordinate) {
+                        Annotation(truncatedPlaceTitle(place.name), coordinate: place.coordinate, anchor: .bottom) {
                             Button(action: {
                                 navigationManager.navigate(to: .placeDetail(id: place.id))
                             }) {
@@ -50,7 +50,14 @@ struct MapPage: View {
                         }
                     }
                 }
-                .mapStyle(.standard)
+                .mapStyle(
+                    .standard(
+                        elevation: .automatic,
+                        emphasis: .muted,
+                        pointsOfInterest: [],
+                        showsTraffic: false
+                    )
+                )
                 .simultaneousGesture(addPlaceGesture(mapProxy: mapProxy))
                 .task {
                     await updateMapToFitPlaces()
@@ -125,20 +132,9 @@ struct MapPage: View {
                             .disabled(isSavingCurrentLocation)
                             Divider()
                             Button(action: {
-                                isShowingAddGuideSheet = true
-                            }) {
-                                Label("添加指南", systemImage: "folder.badge.plus")
-                            }
-                            Divider()
-                            Button(action: {
                                 
                             }) {
                                 Label("开始记录路线", systemImage: "record.circle")
-                            }
-                            Divider()
-                            Button(action: {
-                            }) {
-                                Label("获取照片位置", systemImage: "photo")
                             }
                         } label: {
                             Image(systemName: "plus")
@@ -151,13 +147,6 @@ struct MapPage: View {
                     .padding()
 
                 }
-                if isAddingPlace {
-                    AddPlaceLoadingOverlay(text: "正在添加地点…")
-                }
-            }
-            .overlay(alignment: .top) {
-                groupFilterBar
-                    .safeAreaPadding(.top, 6)
             }
         }
         .toolbar {
@@ -176,6 +165,17 @@ struct MapPage: View {
                     Label("Search", systemImage: "magnifyingglass")
                 }
                 Menu {
+                    Button(action: {
+                        isShowingGroupPicker = true
+                    }) {
+                        Label("更换指南", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Divider()
+                    Button(action: {
+                    }) {
+                        Label("获取照片位置", systemImage: "photo")
+                    }
+                    Divider()
                     Button(action: {
                         // TODO: 分享功能
                     }) {
@@ -197,6 +197,12 @@ struct MapPage: View {
             AddGuideSheet { group in
                 selectedGroupId = group.id
             }
+        }
+        .sheet(isPresented: $isShowingGroupPicker) {
+            GroupPickerSheet(
+                groups: groups,
+                selectedGroupId: $selectedGroupId
+            )
         }
     }
     
@@ -239,9 +245,7 @@ struct MapPage: View {
     private func markCurrentLocation() async {
         guard !isSavingCurrentLocation else { return }
         isSavingCurrentLocation = true
-        isAddingPlace = true
         defer { isSavingCurrentLocation = false }
-        defer { isAddingPlace = false }
 
         do {
             guard let location = try await fetchCurrentLocation() else {
@@ -251,6 +255,7 @@ struct MapPage: View {
 
             let mapItem = await reverseGeocode(location: location)
             let place = mapItem.map { PlaceItem(mapItem: $0) } ?? PlaceItem(location: location)
+            place.mapIconName = "round_pushpin_round_pushpin_3d"
 
             insertPlaceAndAttachToGuide(place)
 
@@ -304,45 +309,6 @@ struct MapPage: View {
         let startOfMonth = calendar.date(from: components) ?? timelineState.selectedDate
         let nextMonth = calendar.date(byAdding: .month, value: 1, to: startOfMonth) ?? startOfMonth
         return calendar.date(byAdding: .second, value: -1, to: nextMonth) ?? timelineState.selectedDate
-    }
-
-    @ViewBuilder
-    private var groupFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 10) {
-                groupFilterButton(title: "全部", isSelected: selectedGroupId == nil) {
-                    selectedGroupId = nil
-                }
-                ForEach(groups, id: \.id) { group in
-                    groupFilterButton(title: group.name, isSelected: selectedGroupId == group.id) {
-                        selectedGroupId = group.id
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
-        }
-        .frame(maxWidth: .infinity, maxHeight: 68, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func groupFilterButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(isSelected ? .white : .primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .frame(minHeight: 32)
-        }
-        .background {
-            if isSelected {
-                Capsule()
-                    .fill(Color.blue)
-            }
-        }
-        .glassEffect(.regular, in: Capsule())
-        .buttonStyle(.plain)
     }
 
     private func filterPlacesByGroup(_ source: [PlaceItem]) -> [PlaceItem] {
@@ -460,12 +426,40 @@ struct MapPage: View {
 
     @MainActor
     private func addPlace(at coordinate: CLLocationCoordinate2D) async {
-        isAddingPlace = true
-        defer { isAddingPlace = false }
         let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let mapItem = await reverseGeocode(location: location)
-        let place = mapItem.map { PlaceItem(mapItem: $0) } ?? PlaceItem(location: location)
+        let place = PlaceItem(
+            name: "新地点",
+            addressFull: "未知",
+            addressShort: "未知",
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
+        place.arrivalAt = Date()
+        place.mapIconName = "round_pushpin_round_pushpin_3d"
+        timelineState.scrollToNow()
         insertPlaceAndAttachToGuide(place)
+
+        if let mapItem = await reverseGeocode(location: location) {
+            let updated = PlaceItem(mapItem: mapItem)
+            place.name = updated.name
+            place.addressFull = updated.addressFull
+            place.addressShort = updated.addressShort
+            place.addressCityName = updated.addressCityName
+            place.addressCityWithContext = updated.addressCityWithContext
+            place.addressRegionName = updated.addressRegionName
+            place.latitude = updated.latitude
+            place.longitude = updated.longitude
+            place.horizontalAccuracy = updated.horizontalAccuracy
+            place.verticalAccuracy = updated.verticalAccuracy
+            place.altitude = updated.altitude
+            place.speed = updated.speed
+            place.course = updated.course
+            place.timestamp = updated.timestamp
+            place.phoneNumber = updated.phoneNumber
+            place.url = updated.url
+            place.pointOfInterestCategory = updated.pointOfInterestCategory
+            place.timeZoneIdentifier = updated.timeZoneIdentifier
+        }
     }
     
     /// 仅用于连续定位
@@ -567,6 +561,64 @@ private struct AddGuideSheet: View {
     }
 }
 
+private struct GroupPickerSheet: View {
+    let groups: [GroupItem]
+    @Binding var selectedGroupId: UUID?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isShowingAddGuideSheet = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                groupRow(title: "全部", groupId: nil)
+                ForEach(groups, id: \.id) { group in
+                    groupRow(title: group.name, groupId: group.id)
+                }
+            }
+            .navigationTitle("更换指南")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("新增") {
+                        isShowingAddGuideSheet = true
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .sheet(isPresented: $isShowingAddGuideSheet) {
+            AddGuideSheet { group in
+                selectedGroupId = group.id
+                dismiss()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func groupRow(title: String, groupId: UUID?) -> some View {
+        Button(action: {
+            selectedGroupId = groupId
+            dismiss()
+        }) {
+            HStack {
+                Text(title)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if selectedGroupId == groupId {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
 private struct AddPlaceLoadingOverlay: View {
     let text: String
 
@@ -652,22 +704,11 @@ struct PlaceMarkerView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
-                .padding(4)
-                .background {
-                    Circle()
-                        .fill(.white)
-                }
-                .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
         } else {
-            Image(systemName: "mappin.circle.fill")
-                .font(.system(size: size))
+            Image(systemName: "mappin")
+                .font(.system(size: size * 0.9, weight: .semibold))
                 .foregroundStyle(fallbackColor)
-                .background {
-                    Circle()
-                        .fill(.white)
-                        .frame(width: size - 2, height: size - 2)
-                }
-                .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 2)
+                .frame(width: size, height: size)
         }
     }
 }

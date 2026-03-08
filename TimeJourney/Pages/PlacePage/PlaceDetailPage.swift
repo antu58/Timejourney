@@ -14,6 +14,9 @@ struct PlaceDetailPage: View {
     @Query private var places: [PlaceItem]
     @State private var isShowingAddContent = false
     @State private var isShowingIconPicker = false
+    @State private var isShowingDeleteConfirm = false
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
 
     init(placeId: UUID) {
         self.placeId = placeId
@@ -67,6 +70,12 @@ struct PlaceDetailPage: View {
                         }
                     }
                 }
+
+                Section("删除") {
+                    Button("删除地点", role: .destructive) {
+                        isShowingDeleteConfirm = true
+                    }
+                }
             }
             .navigationTitle(place.name ?? "地点详情")
             .navigationBarTitleDisplayMode(.inline)
@@ -76,6 +85,16 @@ struct PlaceDetailPage: View {
                         isShowingAddContent = true
                     }
                 }
+            }
+            .confirmationDialog(
+                "确定要删除这个地点吗？",
+                isPresented: $isShowingDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("删除地点", role: .destructive) {
+                    deletePlace(place)
+                }
+                Button("取消", role: .cancel) { }
             }
             .sheet(isPresented: $isShowingAddContent) {
                 AddContentSheet(place: place)
@@ -91,6 +110,18 @@ struct PlaceDetailPage: View {
         } else {
             ProgressView("加载中...")
         }
+    }
+
+    private func deletePlace(_ place: PlaceItem) {
+        place.groupLinks.forEach { link in
+            modelContext.delete(link)
+        }
+        place.contents.forEach { content in
+            modelContext.delete(content)
+        }
+        modelContext.delete(place)
+        modelContext.processPendingChanges()
+        dismiss()
     }
 
     @ViewBuilder
