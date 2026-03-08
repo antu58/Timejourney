@@ -46,10 +46,13 @@ struct TimelineScrollBar: View {
     
     var body: some View {
         GeometryReader { geometry in
-            let viewWidth = geometry.size.width
-            let centerX = viewWidth / 2
-            
-            ZStack {
+            VStack {
+                Text(formattedYearMonth(state.selectedDate))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.65))
+                    .frame(maxWidth: .infinity, alignment: .center)
+   
+
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .bottom, spacing: 0) {
@@ -57,10 +60,8 @@ struct TimelineScrollBar: View {
                                 yearView(year: year, isLastYear: year == state.endYear)
                             }
                         }
-                        // 左侧 padding 允许最早月份滚动到中心
-                        .padding(.leading, centerX)
-                        // 右侧 padding 允许当前月份滚动到中心
-                        .padding(.trailing, centerX)
+                        .padding(.leading, geometry.size.width)
+                        .opacity(0.5)
                     }
                     .scrollClipDisabled(false)
                     .onScrollGeometryChange(for: ScrollGeometryInfo.self) { geometry in
@@ -72,57 +73,51 @@ struct TimelineScrollBar: View {
                     } action: { oldValue, newValue in
                         // 只有在初始滚动完成后才更新选中日期
                         if hasInitialScrolled {
-                            // 当容器宽度变化时（屏幕缩放/旋转），保持当前选中日期居中
+                            // 当容器宽度变化时（屏幕缩放/旋转），保持当前选中日期右侧对齐
                             if oldValue.containerWidth != newValue.containerWidth {
                                 let targetID = selectedScrollID
                                 DispatchQueue.main.async {
-                                    proxy.scrollTo(targetID, anchor: .center)
+                                    proxy.scrollTo(targetID, anchor: .trailing)
                                 }
                                 return
                             }
                             
-                            // 计算最大有效偏移量（当前月份刻度在中轴时的偏移）
-                            let currentMonthPosition = CGFloat(state.endYear - state.startYear) * 12 * state.monthWidth
-                                + CGFloat(state.currentMonth - 1) * state.monthWidth
-                            let maxValidOffset = currentMonthPosition
+                            // 计算最大有效偏移量（最右侧对齐）
+                            let maxValidOffset = max(0, newValue.contentWidth - newValue.containerWidth)
                             
-                            // 如果超出右边界（未来时间），限制到当前时间
-                            if newValue.offset > maxValidOffset {
-                                proxy.scrollTo(initialScrollID, anchor: .center)
-                            } else {
-                                updateSelectedDate(scrollOffset: newValue.offset, centerX: centerX)
+                            // 超出右边界（未来时间）时，不更新数据，交给系统弹性回弹
+                            if newValue.offset <= maxValidOffset {
+                                updateSelectedDate(scrollOffset: newValue.offset, containerWidth: newValue.containerWidth)
                             }
                         }
                     }
                     .task {
                         // 等待布局完成后执行初始滚动
                         if !hasInitialScrolled {
-                            try? await Task.sleep(for: .milliseconds(100))
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                proxy.scrollTo(initialScrollID, anchor: .center)
-                            }
+                            await Task.yield()
+                            proxy.scrollTo(initialScrollID, anchor: .trailing)
                             hasInitialScrolled = true
                         }
                     }
                     .onChange(of: scrollTargetID) { oldValue, newValue in
                         // 响应程序化滚动请求
                         if let targetID = newValue {
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                proxy.scrollTo(targetID, anchor: .center)
+                            if hasInitialScrolled {
+                                withAnimation(.easeOut(duration: 0.3)) {
+                                    proxy.scrollTo(targetID, anchor: .trailing)
+                                }
+                            } else {
+                                proxy.scrollTo(targetID, anchor: .trailing)
                             }
                             scrollTargetID = nil
                         }
                     }
                 }
                 
-                // 中心指示器
-                centerIndicator
-                    .allowsHitTesting(false)
             }
             .frame(height: geometry.size.height, alignment: .center)
         }
         .frame(height: 44)
-        .glassEffect()
     }
     
     /// 生成年月唯一标识
@@ -140,12 +135,6 @@ struct TimelineScrollBar: View {
                 monthTick(month: month, year: year)
                     .id(yearMonthID(year: year, month: month))
             }
-            
-            // 如果是最后一年且不满12个月，填充空白
-            if isLastYear && monthCount < 12 {
-                Spacer()
-                    .frame(width: CGFloat(12 - monthCount) * state.monthWidth)
-            }
         }
     }
     
@@ -153,17 +142,6 @@ struct TimelineScrollBar: View {
     @ViewBuilder
     private func monthTick(month: Int, year: Int) -> some View {
         VStack(spacing: 2) {
-            // 年份标签（只在1月显示）
-            if month == 1 {
-                Text(String(year))
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            } else {
-                Spacer()
-                    .frame(height: 11) // 与年份标签高度匹配
-            }
-            
             // 刻度线
             Rectangle()
                 .fill(tickColor(for: month))
@@ -172,33 +150,33 @@ struct TimelineScrollBar: View {
         .frame(width: state.monthWidth)
     }
     
-    /// 根据滚动偏移更新选中日期
-    private func updateSelectedDate(scrollOffset: CGFloat, centerX: CGFloat) {
-        // 计算中心位置对应的日期
-        let adjustedOffset = scrollOffset + centerX
-        
-        // 计算年份和月份
+    /// 根据滚动偏移更新选中日期（按月份区间更新）
+    private func updateSelectedDate(scrollOffset: CGFloat, containerWidth: CGFloat) {
+        // 计算右侧对齐位置对应的月份区间（区间内不触发更新）
+        // 将精确落在刻度线时视为前一个月份区间
+        let epsilon: CGFloat = 0.001
+        let adjustedOffset = max(0, scrollOffset + containerWidth - epsilon - containerWidth)
         let totalMonthWidth = state.monthWidth
-        let yearWidth = 12 * totalMonthWidth
-        
-        let yearIndex = Int(adjustedOffset / yearWidth)
-        let monthOffset = adjustedOffset.truncatingRemainder(dividingBy: yearWidth)
-        let monthIndex = Int(monthOffset / totalMonthWidth)
-        
+        let totalMonths = max(0, Int(adjustedOffset / totalMonthWidth))
+
+        let yearIndex = totalMonths / 12
+        let monthIndex = totalMonths % 12
         let year = state.startYear + yearIndex
-        let month = max(1, min(12, monthIndex + 1))
-        
+        var month = monthIndex + 1
+
         // 确保年份在有效范围内
         guard year >= state.startYear && year <= state.endYear else { return }
-        
+
         // 如果是最后一年，限制月份
-        let validMonth = (year == state.endYear) ? min(month, state.currentMonth) : month
-        
+        if year == state.endYear {
+            month = min(month, state.currentMonth)
+        }
+
         var components = DateComponents()
         components.year = year
-        components.month = validMonth
+        components.month = month
         components.day = 1
-        
+
         if let date = Calendar.current.date(from: components) {
             state.updateSelectedDate(date)
         }
@@ -207,8 +185,7 @@ struct TimelineScrollBar: View {
     /// 刻度线高度（季度和年份刻度更高）
     private func tickHeight(for month: Int) -> CGFloat {
         switch month {
-        case 1: return 16  // 1月（年初）最高
-        case 4, 7, 10: return 12  // 季度开始
+        case 1: return 12  // 1月（年初）
         default: return 6  // 普通月份
         }
     }
@@ -216,7 +193,7 @@ struct TimelineScrollBar: View {
     /// 刻度线宽度
     private func tickWidth(for month: Int) -> CGFloat {
         switch month {
-        case 1: return 2  // 1月（年初）更粗
+        case 1: return 1  // 1月（年初）与普通刻度一致
         case 4, 7, 10: return 1.5  // 季度开始
         default: return 1  // 普通月份
         }
@@ -225,18 +202,16 @@ struct TimelineScrollBar: View {
     /// 刻度线颜色
     private func tickColor(for month: Int) -> Color {
         switch month {
-        case 1: return .primary.opacity(0.9)
-        case 4, 7, 10: return .primary.opacity(0.6)
-        default: return .primary.opacity(0.35)
+        case 1: return .primary.opacity(0.7)
+        case 4, 7, 10: return .primary.opacity(0.5)
+        default: return .primary.opacity(0.25)
         }
     }
-    
-    /// 中心指示器
-    private var centerIndicator: some View {
-        // 中心线
-        Rectangle()
-            .fill(.primary)
-            .frame(width: 2, height: 28)
+
+    private func formattedYearMonth(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy·M"
+        return formatter.string(from: date)
     }
     
 }

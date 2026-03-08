@@ -39,6 +39,8 @@ struct ContentView: View {
             UserPage()
         case .placeDetail(let id):
             PlaceDetailPage(placeId: id)
+        case .routeDetail(let id):
+            RouteDetailPage(routeId: id)
         default:
             // 其他导航目标由各自页面处理
             EmptyView()

@@ -22,6 +22,7 @@ struct MapPage: View {
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(\.modelContext) private var modelContext
     @Query private var places: [PlaceItem]
+    @Query private var routes: [RouteItem]
     @Query(sort: \GroupItem.createdAt, order: .forward) private var groups: [GroupItem]
     @Query private var groupPlaceLinks: [GroupPlaceLink]
 
@@ -61,6 +62,13 @@ struct MapPage: View {
                 .simultaneousGesture(addPlaceGesture(mapProxy: mapProxy))
                 .task {
                     await updateMapToFitPlaces()
+                    updateTimelineStartDate()
+                }
+                .onChange(of: places.map(\.arrivalAt)) { _, _ in
+                    updateTimelineStartDate()
+                }
+                .onChange(of: routes.map(\.arrivalAt)) { _, _ in
+                    updateTimelineStartDate()
                 }
 
                 VStack {
@@ -169,6 +177,14 @@ struct MapPage: View {
                         isShowingGroupPicker = true
                     }) {
                         Label("更换指南", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Divider()
+                    Button(action: {
+                        Task { @MainActor in
+                            addSamplePlaces()
+                        }
+                    }) {
+                        Label("生成测试地点", systemImage: "sparkles")
                     }
                     Divider()
                     Button(action: {
@@ -322,6 +338,49 @@ struct MapPage: View {
         )
         guard !groupPlaceIds.isEmpty else { return [] }
         return source.filter { groupPlaceIds.contains($0.id) }
+    }
+
+    private func updateTimelineStartDate() {
+        let minPlaceArrivalAt = places.map(\.arrivalAt).min()
+        let minRouteArrivalAt = routes.map(\.arrivalAt).min()
+        let minArrivalAt = [minPlaceArrivalAt, minRouteArrivalAt].compactMap { $0 }.min()
+        timelineState.updateStartDate(minArrivalAt: minArrivalAt)
+    }
+
+    @MainActor
+    private func addSamplePlaces() {
+        let calendar = Calendar.current
+        let now = Date()
+        let samples: [(name: String, city: String, latitude: Double, longitude: Double, monthsAgo: Int)] = [
+            ("天安门广场", "北京", 39.9087, 116.3975, 0),
+            ("外滩", "上海", 31.2400, 121.4900, 1),
+            ("兵马俑", "西安", 34.3849, 109.2733, 2),
+            ("漓江", "桂林", 25.2736, 110.2900, 3),
+            ("峨眉山", "乐山", 29.5170, 103.3310, 4),
+            ("张家界国家森林公园", "张家界", 29.3300, 110.4790, 5),
+            ("西湖", "杭州", 30.2431, 120.1500, 6),
+            ("布达拉宫", "拉萨", 29.6577, 91.1175, 7),
+            ("鼓浪屿", "厦门", 24.4510, 118.0660, 8),
+            ("九寨沟", "阿坝", 33.2520, 103.9180, 9),
+            ("黄山", "黄山", 30.1340, 118.1660, 10),
+            ("武陵源", "张家界", 29.3570, 110.5500, 11)
+        ]
+
+        for sample in samples {
+            let arrivalAt = calendar.date(byAdding: .month, value: -sample.monthsAgo, to: now) ?? now
+            let place = PlaceItem(
+                createdAt: arrivalAt,
+                name: sample.name,
+                addressShort: sample.city,
+                addressCityName: sample.city,
+                latitude: sample.latitude,
+                longitude: sample.longitude,
+                arrivalAt: arrivalAt
+            )
+            place.mapIconName = "round_pushpin_round_pushpin_3d"
+            insertPlaceAndAttachToGuide(place)
+        }
+        modelContext.processPendingChanges()
     }
 
     private func truncatedPlaceTitle(_ name: String?) -> String {

@@ -14,6 +14,7 @@ import CoreLocation
 final class RouteItem {
     @Attribute(.unique) var id: UUID
     var createdAt: Date
+    var arrivalAt: Date
 
     var name: String?
     var summary: String?
@@ -48,6 +49,7 @@ final class RouteItem {
     init(
         id: UUID = UUID(),
         createdAt: Date = Date(),
+        arrivalAt: Date? = nil,
         name: String? = nil,
         summary: String? = nil,
         sourceTypeRaw: String = RouteSourceType.planned.rawValue,
@@ -65,6 +67,7 @@ final class RouteItem {
     ) {
         self.id = id
         self.createdAt = createdAt
+        self.arrivalAt = arrivalAt ?? createdAt
         self.name = name
         self.summary = summary
         self.sourceTypeRaw = sourceTypeRaw

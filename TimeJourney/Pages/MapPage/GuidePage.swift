@@ -16,7 +16,7 @@ struct GuidePage: View {
     @Environment(NavigationManager.self) private var navigationManager
     @Query private var groups: [GroupItem]
     @Query(sort: \PlaceItem.arrivalAt, order: .reverse) private var places: [PlaceItem]
-    @Query(sort: \RouteItem.createdAt, order: .reverse) private var routes: [RouteItem]
+    @Query(sort: \RouteItem.arrivalAt, order: .reverse) private var routes: [RouteItem]
 
     @State private var selectedTab: GuideTab = .places
     @State private var isShowingEditSheet = false
@@ -48,7 +48,12 @@ struct GuidePage: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(displayRoutes, id: \.id) { route in
-                            RouteRow(route: route)
+                            Button(action: {
+                                navigationManager.navigate(to: .routeDetail(id: route.id))
+                            }) {
+                                RouteRow(route: route)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -114,7 +119,7 @@ struct GuidePage: View {
 
     private var displayRoutes: [RouteItem] {
         if let group = selectedGroup {
-            return group.routes.sorted { $0.createdAt > $1.createdAt }
+            return group.routes.sorted { $0.arrivalAt > $1.arrivalAt }
         }
         return routes
     }

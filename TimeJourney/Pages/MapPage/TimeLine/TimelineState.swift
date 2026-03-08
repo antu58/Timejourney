@@ -19,7 +19,7 @@ final class TimelineState {
     /// 时间范围起始时间
     var startDate: Date
     
-    /// 时间范围结束时间（当前时间）
+    /// 时间范围结束时间（当前时间的下一个月）
     var endDate: Date
     
     /// 滚动偏移量
@@ -39,10 +39,11 @@ final class TimelineState {
     /// - Parameter pastYears: 默认可向前滚动的年数
     init(initialDate: Date = Date(), pastYears: Int = 20) {
         let now = Date()
+        let maxDate = TimelineState.maxDate(from: now)
         let safePastYears = max(0, pastYears)
-        let start = TimelineState.startDate(for: now, pastYears: safePastYears)
-        
-        self.endDate = now
+        let start = TimelineState.startDate(for: maxDate, pastYears: safePastYears)
+
+        self.endDate = maxDate
         self.pastYears = safePastYears
         self.startDate = start
         self.selectedDate = initialDate
@@ -127,9 +128,10 @@ final class TimelineState {
     
     /// 滚动到当前时间
     func scrollToNow() {
-        endDate = Date()
+        let now = Date()
+        endDate = TimelineState.maxDate(from: now)
         startDate = TimelineState.startDate(for: endDate, pastYears: pastYears)
-        scrollTo(date: endDate)
+        scrollTo(date: now)
     }
     
     /// 格式化显示选中的日期
@@ -139,7 +141,7 @@ final class TimelineState {
         return formatter.string(from: selectedDate)
     }
 
-    /// 计算起始时间（当前时间向前 N 年的 1 月 1 日）
+    /// 计算起始时间（结束时间向前 N 年的 1 月 1 日）
     private static func startDate(for endDate: Date, pastYears: Int) -> Date {
         let calendar = Calendar.current
         let endYear = calendar.component(.year, from: endDate)
@@ -151,5 +153,26 @@ final class TimelineState {
         components.day = 1
         
         return calendar.date(from: components) ?? endDate
+    }
+
+    /// 最大时间范围：当前时间所在月份 + 1 个月（取该月 1 号）
+    private static func maxDate(from date: Date) -> Date {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month], from: date)
+        let startOfMonth = calendar.date(from: components) ?? date
+        return calendar.date(byAdding: .month, value: 1, to: startOfMonth) ?? date
+    }
+
+    /// 根据最小到达时间更新起始时间（最小到达时间 - 1 个月）
+    func updateStartDate(minArrivalAt: Date?) {
+        guard let minArrivalAt else { return }
+        let calendar = Calendar.current
+        let minMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: minArrivalAt)) ?? minArrivalAt
+        let newStart = calendar.date(byAdding: .month, value: -1, to: minMonthStart) ?? minMonthStart
+
+        if newStart != startDate {
+            startDate = min(newStart, endDate)
+            updateSelectedDate(selectedDate)
+        }
     }
 }
