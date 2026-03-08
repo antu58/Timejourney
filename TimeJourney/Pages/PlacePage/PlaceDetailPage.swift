@@ -12,9 +12,11 @@ struct PlaceDetailPage: View {
     let placeId: UUID
 
     @Query private var places: [PlaceItem]
+    @Query(sort: \GroupItem.createdAt, order: .forward) private var groups: [GroupItem]
     @State private var isShowingAddContent = false
     @State private var isShowingIconPicker = false
     @State private var isShowingDeleteConfirm = false
+    @State private var isShowingGuidePicker = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -71,20 +73,39 @@ struct PlaceDetailPage: View {
                     }
                 }
 
-                Section("删除") {
-                    Button("删除地点", role: .destructive) {
-                        isShowingDeleteConfirm = true
-                    }
-                }
             }
             .navigationTitle(place.name ?? "地点详情")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("添加内容") {
-                        isShowingAddContent = true
+                    Menu {
+                        Button("添加到指南") {
+                            isShowingGuidePicker = true
+                        }
+                        Button("删除地点", role: .destructive) {
+                            isShowingDeleteConfirm = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
                     }
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        isShowingAddContent = true
+                    }) {
+                        Label("添加内容", systemImage: "plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: Capsule())
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             }
             .confirmationDialog(
                 "确定要删除这个地点吗？",
@@ -106,6 +127,9 @@ struct PlaceDetailPage: View {
                         place.mapIconName = selected
                     }
                 )
+            }
+            .sheet(isPresented: $isShowingGuidePicker) {
+                GuidePickerSheet(place: place, groups: groups)
             }
         } else {
             ProgressView("加载中...")
@@ -141,6 +165,116 @@ struct PlaceDetailPage: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+}
+
+private struct GuidePickerSheet: View {
+    let place: PlaceItem
+    let groups: [GroupItem]
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var isShowingAddGuideSheet = false
+    @State private var selectedGroupIds: Set<UUID> = []
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if groups.isEmpty {
+                    Text("暂无指南")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(groups, id: \.id) { group in
+                        groupRow(group)
+                    }
+                }
+            }
+            .navigationTitle("添加到指南")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("新建") {
+                        isShowingAddGuideSheet = true
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        attachSelectedGroups()
+                        dismiss()
+                    }) {
+                        Text("完成")
+                            .font(.system(size: 16, weight: .semibold))
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: Capsule())
+                    .disabled(selectedGroupIds.isEmpty)
+                    .opacity(selectedGroupIds.isEmpty ? 0.5 : 1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+        }
+        .onAppear {
+            selectedGroupIds = Set(place.groupLinks.compactMap { $0.group?.id })
+        }
+        .sheet(isPresented: $isShowingAddGuideSheet) {
+            AddGuideSheet { group in
+                selectedGroupIds.insert(group.id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func groupRow(_ group: GroupItem) -> some View {
+        let isAttached = place.groupLinks.contains(where: { $0.group?.id == group.id })
+        let isSelected = selectedGroupIds.contains(group.id)
+
+        Button(action: {
+            guard !isAttached else { return }
+            if isSelected {
+                selectedGroupIds.remove(group.id)
+            } else {
+                selectedGroupIds.insert(group.id)
+            }
+        }) {
+            HStack {
+                Text(group.name)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if isAttached {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isAttached)
+        .opacity(isAttached ? 0.6 : 1)
+    }
+
+    private func attachSelectedGroups() {
+        let existingIds = Set(place.groupLinks.compactMap { $0.group?.id })
+        let newIds = selectedGroupIds.subtracting(existingIds)
+        guard !newIds.isEmpty else { return }
+
+        for group in groups where newIds.contains(group.id) {
+            let link = GroupPlaceLink(group: group, place: place)
+            modelContext.insert(link)
+        }
+        modelContext.processPendingChanges()
     }
 }
 

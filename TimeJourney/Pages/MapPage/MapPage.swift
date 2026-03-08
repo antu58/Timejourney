@@ -8,6 +8,9 @@
 import SwiftUI
 import MapKit
 import SwiftData
+import PhotosUI
+import Photos
+import ImageIO
 
 struct MapPage: View {
 
@@ -17,8 +20,16 @@ struct MapPage: View {
     @State private var isSavingCurrentLocation: Bool = false
     @State private var showsUserLocation: Bool = false
     @State private var selectedGroupId: UUID? = nil
+    @AppStorage("lastSelectedGroupId") private var lastSelectedGroupId: String = ""
     @State private var isShowingAddGuideSheet: Bool = false
     @State private var isShowingGroupPicker: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var isProcessingPhotoLocation: Bool = false
+    @State private var isShowingPhotoLocationAlert: Bool = false
+    @State private var photoLocationAlertMessage: String = ""
+    @State private var isShowingPhotosPicker: Bool = false
+    @State private var photoProcessingToken = UUID()
+    @State private var didInitialMapFit: Bool = false
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(\.modelContext) private var modelContext
     @Query private var places: [PlaceItem]
@@ -61,7 +72,10 @@ struct MapPage: View {
                 )
                 .simultaneousGesture(addPlaceGesture(mapProxy: mapProxy))
                 .task {
-                    await updateMapToFitPlaces()
+                    if !didInitialMapFit, mapPosition.region == nil {
+                        await updateMapToFitPlaces()
+                        didInitialMapFit = true
+                    }
                     updateTimelineStartDate()
                 }
                 .onChange(of: places.map(\.arrivalAt)) { _, _ in
@@ -69,6 +83,18 @@ struct MapPage: View {
                 }
                 .onChange(of: routes.map(\.arrivalAt)) { _, _ in
                     updateTimelineStartDate()
+                }
+                .onChange(of: selectedPhotoItem) { _, newItem in
+                    guard let newItem else { return }
+                    handlePhotoSelection(newItem)
+                }
+                .onChange(of: selectedGroupId) { _, newValue in
+                    lastSelectedGroupId = newValue?.uuidString ?? ""
+                }
+                .task {
+                    if selectedGroupId == nil, let id = UUID(uuidString: lastSelectedGroupId) {
+                        selectedGroupId = id
+                    }
                 }
 
                 VStack {
@@ -157,6 +183,19 @@ struct MapPage: View {
                 }
             }
         }
+        .alert("无法识别照片位置", isPresented: $isShowingPhotoLocationAlert) {
+            Button("确定", role: .cancel) { }
+        } message: {
+            Text(photoLocationAlertMessage)
+        }
+        .photosPicker(isPresented: $isShowingPhotosPicker, selection: $selectedPhotoItem, matching: .images)
+        .alert("正在解析照片位置…", isPresented: $isProcessingPhotoLocation) {
+            Button("取消", role: .cancel) {
+                isProcessingPhotoLocation = false
+            }
+        } message: {
+            Text("请稍候")
+        }
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarLeading) {
@@ -188,6 +227,9 @@ struct MapPage: View {
                     }
                     Divider()
                     Button(action: {
+                        Task { @MainActor in
+                            await requestPhotoAccessAndPresentPicker()
+                        }
                     }) {
                         Label("获取照片位置", systemImage: "photo")
                     }
@@ -499,26 +541,128 @@ struct MapPage: View {
         insertPlaceAndAttachToGuide(place)
 
         if let mapItem = await reverseGeocode(location: location) {
-            let updated = PlaceItem(mapItem: mapItem)
-            place.name = updated.name
-            place.addressFull = updated.addressFull
-            place.addressShort = updated.addressShort
-            place.addressCityName = updated.addressCityName
-            place.addressCityWithContext = updated.addressCityWithContext
-            place.addressRegionName = updated.addressRegionName
-            place.latitude = updated.latitude
-            place.longitude = updated.longitude
-            place.horizontalAccuracy = updated.horizontalAccuracy
-            place.verticalAccuracy = updated.verticalAccuracy
-            place.altitude = updated.altitude
-            place.speed = updated.speed
-            place.course = updated.course
-            place.timestamp = updated.timestamp
-            place.phoneNumber = updated.phoneNumber
-            place.url = updated.url
-            place.pointOfInterestCategory = updated.pointOfInterestCategory
-            place.timeZoneIdentifier = updated.timeZoneIdentifier
+            applyMapItem(mapItem, to: place)
         }
+    }
+
+    @MainActor
+    private func handlePhotoSelection(_ item: PhotosPickerItem) {
+        let token = UUID()
+        photoProcessingToken = token
+        isProcessingPhotoLocation = true
+        Task {
+            defer {
+                Task { @MainActor in
+                    isProcessingPhotoLocation = false
+                    selectedPhotoItem = nil
+                }
+            }
+
+            Task {
+                try? await Task.sleep(for: .seconds(60))
+                await MainActor.run {
+                    guard isProcessingPhotoLocation, photoProcessingToken == token else { return }
+                    photoLocationAlertMessage = "解析超时，请稍后重试"
+                    isShowingPhotoLocationAlert = true
+                    isProcessingPhotoLocation = false
+                }
+            }
+
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let coordinate = extractCoordinate(from: data) else {
+                await MainActor.run {
+                    photoLocationAlertMessage = "未能识别照片中的位置信息"
+                    isShowingPhotoLocationAlert = true
+                }
+                return
+            }
+
+            await addPlaceFromPhoto(coordinate: coordinate)
+        }
+    }
+
+    @MainActor
+    private func addPlaceFromPhoto(coordinate: CLLocationCoordinate2D) async {
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let place = PlaceItem(
+            name: "新地点",
+            addressFull: "未知",
+            addressShort: "未知",
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
+        place.arrivalAt = Date()
+        place.mapIconName = "round_pushpin_round_pushpin_3d"
+        timelineState.scrollToNow()
+        insertPlaceAndAttachToGuide(place)
+        moveMap(to: coordinate)
+
+        if let mapItem = await reverseGeocode(location: location) {
+            applyMapItem(mapItem, to: place)
+        }
+    }
+
+    @MainActor
+    private func requestPhotoAccessAndPresentPicker() async {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let resolved: PHAuthorizationStatus
+
+        if status == .notDetermined {
+            resolved = await withCheckedContinuation { continuation in
+                PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
+                    continuation.resume(returning: newStatus)
+                }
+            }
+        } else {
+            resolved = status
+        }
+
+        switch resolved {
+        case .authorized, .limited:
+            isShowingPhotosPicker = true
+        default:
+            photoLocationAlertMessage = "没有照片权限，无法读取照片位置"
+            isShowingPhotoLocationAlert = true
+        }
+    }
+
+    private func extractCoordinate(from data: Data) -> CLLocationCoordinate2D? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any],
+              let latitude = gps[kCGImagePropertyGPSLatitude] as? Double,
+              let longitude = gps[kCGImagePropertyGPSLongitude] as? Double
+        else {
+            return nil
+        }
+
+        let latRef = gps[kCGImagePropertyGPSLatitudeRef] as? String
+        let lonRef = gps[kCGImagePropertyGPSLongitudeRef] as? String
+        let finalLat = (latRef == "S") ? -latitude : latitude
+        let finalLon = (lonRef == "W") ? -longitude : longitude
+        return CLLocationCoordinate2D(latitude: finalLat, longitude: finalLon)
+    }
+
+    private func applyMapItem(_ mapItem: MKMapItem, to place: PlaceItem) {
+        let updated = PlaceItem(mapItem: mapItem)
+        place.name = updated.name
+        place.addressFull = updated.addressFull
+        place.addressShort = updated.addressShort
+        place.addressCityName = updated.addressCityName
+        place.addressCityWithContext = updated.addressCityWithContext
+        place.addressRegionName = updated.addressRegionName
+        place.latitude = updated.latitude
+        place.longitude = updated.longitude
+        place.horizontalAccuracy = updated.horizontalAccuracy
+        place.verticalAccuracy = updated.verticalAccuracy
+        place.altitude = updated.altitude
+        place.speed = updated.speed
+        place.course = updated.course
+        place.timestamp = updated.timestamp
+        place.phoneNumber = updated.phoneNumber
+        place.url = updated.url
+        place.pointOfInterestCategory = updated.pointOfInterestCategory
+        place.timeZoneIdentifier = updated.timeZoneIdentifier
     }
     
     /// 仅用于连续定位
@@ -564,7 +708,7 @@ struct MapPage: View {
     }
 }
 
-private struct AddGuideSheet: View {
+struct AddGuideSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isNameFocused: Bool
