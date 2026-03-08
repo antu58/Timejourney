@@ -105,15 +105,14 @@ struct MapPage: View {
                         VStack(spacing: 12) {
                             Button(action: {
                                 // 定位功能
-                                print("定位按钮被点击")
-                                Task {
-                                    await singleLocation()
-                                }
+                            Task {
+                                await singleLocation()
+                            }
                             }) {
                                 Image(systemName: "location")
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundStyle(isSingleLocation ? .secondary : .primary)
-                                    .frame(width: 36, height: 36)
+                                    .frame(width: 40, height: 40)
                                     .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
@@ -123,12 +122,11 @@ struct MapPage: View {
                             
                             Button(action: {
                                 // TODO: 路线选择功能
-                                print("路线选择按钮被点击")
                             }) {
                                 Image(systemName: "hand.tap")
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundStyle(.primary)
-                                    .frame(width: 36, height: 36)
+                                    .frame(width: 40, height: 40)
                                     .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
@@ -145,31 +143,31 @@ struct MapPage: View {
                             Image(systemName: "tray")
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(.primary)
-                                .frame(width: 44, height: 44)
+                                .frame(width: 48, height: 48)
                                 .glassEffect(.regular, in: Circle())
                         }
                         .buttonStyle(.plain)
+                        .zIndex(1)
                         
                         // 时间线滚动条
                         TimelineScrollBar(state: timelineState)
+                            .zIndex(0)
                         
                         // 添加按钮
                         Button(action: {
-                            print("[MapPage] 点击添加当前位置")
-                            Task {
+                            Task { @MainActor in
                                 await addCurrentLocationPlaceholder()
                             }
                         }) {
                             Image(systemName: "plus")
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(.black)
-                                .frame(width: 44, height: 44)
+                                .frame(width: 48, height: 48)
                                 .glassEffect(.regular, in: Circle())
                         }
                         .buttonStyle(.plain)
-                        .simultaneousGesture(TapGesture().onEnded {
-                            print("[MapPage] plus button tap gesture")
-                        })
+                        .contentShape(Circle())
+                        .zIndex(2)
                     }
                     .padding()
 
@@ -273,16 +271,13 @@ struct MapPage: View {
     /// 单次定位
     @MainActor
     func singleLocation() async  {
-        print("[MapPage] singleLocation start")
         isSingleLocation = true
         defer {
             isSingleLocation = false
-            print("[MapPage] singleLocation end")
         }
 
         do {
             guard let location = try await fetchCurrentLocation() else {
-                print("[MapPage] singleLocation no location")
                 return
             }
             showsUserLocation = true
@@ -299,33 +294,29 @@ struct MapPage: View {
             print(result)
             
             // 移动地图相机到定位坐标，zoom 15 (约1200米)
-            let coordinate = location.coordinate
+            let coordinate = CoordinateConverter.convertIfNeeded(location.coordinate)
             // Zoom 15 约对应 0.01 度的跨度 (约1200米)
             let span = MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
             let region = MKCoordinateRegion(center: coordinate, span: span)
             mapPosition = .region(region)
         } catch {
-            print("[MapPage] singleLocation failed: \(error.localizedDescription)")
+            print("定位失败: \(error.localizedDescription)")
         }
     }
 
     /// 标记当前位置并保存为地点
     @MainActor
     private func markCurrentLocation() async {
-        print("[MapPage] markCurrentLocation start")
         guard !isSavingCurrentLocation else {
-            print("[MapPage] markCurrentLocation ignored: already saving")
             return
         }
         isSavingCurrentLocation = true
         defer {
             isSavingCurrentLocation = false
-            print("[MapPage] markCurrentLocation end")
         }
 
         do {
             guard let location = try await fetchCurrentLocation() else {
-                print("[MapPage] markCurrentLocation no location")
                 return
             }
             showsUserLocation = true
@@ -340,26 +331,22 @@ struct MapPage: View {
 
             moveMap(to: place.coordinate)
         } catch {
-            print("[MapPage] markCurrentLocation failed: \(error.localizedDescription)")
+            print("标记当前位置失败: \(error.localizedDescription)")
         }
     }
 
     @MainActor
     private func addCurrentLocationPlaceholder() async {
-        print("[MapPage] addCurrentLocationPlaceholder start")
         guard !isSavingCurrentLocation else {
-            print("[MapPage] addCurrentLocationPlaceholder ignored: already saving")
             return
         }
         isSavingCurrentLocation = true
         defer {
             isSavingCurrentLocation = false
-            print("[MapPage] addCurrentLocationPlaceholder end")
         }
 
         do {
             guard let location = try await fetchCurrentLocation() else {
-                print("[MapPage] addCurrentLocationPlaceholder no location")
                 return
             }
             showsUserLocation = true
@@ -375,7 +362,6 @@ struct MapPage: View {
             )
             place.arrivalAt = Date()
             place.mapIconName = "round_pushpin_round_pushpin_3d"
-            timelineState.scrollToNow()
             insertPlaceAndAttachToGuide(place)
             moveMap(to: adjustedCoordinate)
 
@@ -525,6 +511,8 @@ struct MapPage: View {
 
     @MainActor
     private func insertPlaceAndAttachToGuide(_ place: PlaceItem) {
+        timelineState.scrollToNow()
+
         modelContext.insert(place)
         attachPlaceToSelectedGuide(place)
         modelContext.processPendingChanges()
@@ -543,9 +531,7 @@ struct MapPage: View {
 
     @MainActor
     private func fetchCurrentLocation() async throws -> CLLocation? {
-        print("[MapPage] fetchCurrentLocation request permission")
         let hasPermission = await LocationUtil.checkAndRequestPermission()
-        print("[MapPage] fetchCurrentLocation permission=\(hasPermission)")
         guard hasPermission else {
             activeAlert = ActiveAlert(type: .locationPermission, message: "没有位置权限，无法保存地点")
             return nil
@@ -558,10 +544,8 @@ struct MapPage: View {
             let delegate = LocationDelegate(continuation: continuation)
             manager.delegate = delegate
             objc_setAssociatedObject(manager, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            print("[MapPage] fetchCurrentLocation requestLocation")
             manager.requestLocation()
         }
-        print("[MapPage] fetchCurrentLocation got location \(location.coordinate.latitude), \(location.coordinate.longitude)")
         return location
     }
 
@@ -606,7 +590,6 @@ struct MapPage: View {
         )
         place.arrivalAt = Date()
         place.mapIconName = "round_pushpin_round_pushpin_3d"
-        timelineState.scrollToNow()
         insertPlaceAndAttachToGuide(place)
 
         if let mapItem = await reverseGeocode(location: location) {
@@ -668,7 +651,6 @@ struct MapPage: View {
         )
         place.arrivalAt = Date()
         place.mapIconName = "round_pushpin_round_pushpin_3d"
-        timelineState.scrollToNow()
         insertPlaceAndAttachToGuide(place)
         moveMap(to: adjustedCoordinate)
 
@@ -939,7 +921,6 @@ private class LocationDelegate: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard !hasResumed, let location = locations.last else { return }
         hasResumed = true
-        print("[MapPage] LocationDelegate didUpdateLocations")
         manager.stopUpdatingLocation()
         continuation.resume(returning: location)
     }
@@ -947,7 +928,6 @@ private class LocationDelegate: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         guard !hasResumed else { return }
         hasResumed = true
-        print("[MapPage] LocationDelegate didFailWithError: \(error.localizedDescription)")
         manager.stopUpdatingLocation()
         continuation.resume(throwing: error)
     }

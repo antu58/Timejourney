@@ -19,7 +19,7 @@ private struct ScrollGeometryInfo: Equatable {
 struct TimelineScrollBar: View {
     
     /// 时间线状态（与父组件同步）
-    @State var state: TimelineState
+    @Bindable var state: TimelineState
     
     /// 滚动目标 ID（用于初始滚动和程序化滚动）
     @State private var scrollTargetID: String?
@@ -49,7 +49,7 @@ struct TimelineScrollBar: View {
             VStack {
                 Text(formattedYearMonth(state.selectedDate))
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary.opacity(0.65))
+                    .foregroundStyle(.primary.opacity(0.5))
                     .frame(maxWidth: .infinity, alignment: .center)
    
 
@@ -111,6 +111,11 @@ struct TimelineScrollBar: View {
                             }
                             scrollTargetID = nil
                         }
+                    }
+                    .onChange(of: state.selectedDate) { _, _ in
+                        guard hasInitialScrolled else { return }
+                        let targetID = selectedScrollID
+                        proxy.scrollTo(targetID, anchor: .trailing)
                     }
                 }
                 
@@ -185,8 +190,8 @@ struct TimelineScrollBar: View {
     /// 刻度线高度（季度和年份刻度更高）
     private func tickHeight(for month: Int) -> CGFloat {
         switch month {
-        case 1: return 12  // 1月（年初）
-        default: return 6  // 普通月份
+        case 1: return 16  // 1月（年初）
+        default: return 8  // 普通月份
         }
     }
     

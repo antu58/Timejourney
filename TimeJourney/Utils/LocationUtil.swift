@@ -18,7 +18,6 @@ final class LocationUtil {
     /// 检查并请求位置权限（异步）
     static func checkAndRequestPermission() async -> Bool {
         let status = CLLocationManager().authorizationStatus
-        print("[LocationUtil] current authorizationStatus=\(status.rawValue)")
 
         if status == .notDetermined {
             return await withCheckedContinuation { continuation in
@@ -31,14 +30,11 @@ final class LocationUtil {
                 manager.delegate = delegate
                 // 保持delegate引用
                 objc_setAssociatedObject(manager, "permissionDelegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-                print("[LocationUtil] requestWhenInUseAuthorization")
                 manager.requestWhenInUseAuthorization()
             }
         }
 
-        let granted = status == .authorizedWhenInUse || status == .authorizedAlways
-        print("[LocationUtil] permission granted=\(granted)")
-        return granted
+        return status == .authorizedWhenInUse || status == .authorizedAlways
     }
 
     /// 仅检查权限状态（不请求）
@@ -71,7 +67,6 @@ private class PermissionDelegate: NSObject, CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         let hasPermission = status == .authorizedWhenInUse || status == .authorizedAlways
-        print("[LocationUtil] authorization changed -> \(status.rawValue), granted=\(hasPermission)")
         guard status != .notDetermined else { return }
         guard !hasResumed, let continuation else { return }
         hasResumed = true
