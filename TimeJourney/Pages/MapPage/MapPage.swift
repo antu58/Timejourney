@@ -143,33 +143,34 @@ struct MapPage: View {
                             Image(systemName: "tray")
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(.primary)
-                                .frame(width: 48, height: 48)
-                                .glassEffect(.regular, in: Circle())
+                                .frame(width: 50, height: 50)
+                                .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
-                        .zIndex(1)
+                        .glassEffect(.regular, in: Circle())
                         
                         // 时间线滚动条
                         TimelineScrollBar(state: timelineState)
-                            .zIndex(0)
                         
                         // 添加按钮
                         Button(action: {
-                            Task { @MainActor in
-                                await addCurrentLocationPlaceholder()
-                            }
+                            guard !isSavingCurrentLocation else { return }
+                            activeAlert = ActiveAlert(
+                                type: .saveCurrentLocationConfirm,
+                                message: "将当前位置保存为新地点"
+                            )
                         }) {
                             Image(systemName: "plus")
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(.black)
-                                .frame(width: 48, height: 48)
-                                .glassEffect(.regular, in: Circle())
+                                .frame(width: 50, height: 50)
+                                .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
-                        .contentShape(Circle())
-                        .zIndex(2)
+                        .glassEffect(.regular, in: Circle())
                     }
-                    .padding()
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
 
                 }
             }
@@ -197,6 +198,17 @@ struct MapPage: View {
                         isProcessingPhotoLocation = false
                         activeAlert = nil
                     })
+                )
+            case .saveCurrentLocationConfirm:
+                return Alert(
+                    title: Text("确认保存当前位置"),
+                    message: Text(alert.message ?? ""),
+                    primaryButton: .default(Text("保存"), action: {
+                        Task { @MainActor in
+                            await addCurrentLocationPlaceholder()
+                        }
+                    }),
+                    secondaryButton: .cancel(Text("取消"))
                 )
             }
         }
@@ -759,6 +771,7 @@ private enum ActiveAlertType {
     case photoLocationFailed
     case locationPermission
     case photoProcessing
+    case saveCurrentLocationConfirm
 }
 
 private struct ActiveAlert: Identifiable {
