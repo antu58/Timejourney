@@ -23,7 +23,6 @@ struct TimeJourneyApp: App {
 private extension TimeJourneyApp {
     static func makeModelContainer() -> ModelContainer {
         let schema = Schema([
-            Item.self,
             PlaceItem.self,
             ContentItem.self,
             RouteItem.self,

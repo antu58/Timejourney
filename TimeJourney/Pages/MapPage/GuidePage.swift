@@ -85,13 +85,6 @@ struct GuidePage: View {
         return places
     }
 
-    private var displayRoutes: [RouteItem] {
-        if let group = selectedGroup {
-            return group.routes.sorted { $0.arrivalAt > $1.arrivalAt }
-        }
-        return routes
-    }
-
     private func deleteSelectedGuide() {
         guard let group = selectedGroup else { return }
         group.placeLinks.forEach { modelContext.delete($0) }
@@ -179,38 +172,6 @@ private struct PlaceRow: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
-    }
-}
-
-private struct RouteRow: View {
-    let route: RouteItem
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "map")
-                .foregroundStyle(.blue)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(route.name ?? "未命名路线")
-                    .font(.headline)
-                if let summary = route.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else {
-                    Text(route.sourceTypeRaw == RouteSourceType.recorded.rawValue ? "轨迹记录" : "路线规划")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if let distance = route.distanceMeters {
-                Text(String(format: "%.1f km", distance / 1000))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 

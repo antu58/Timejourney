@@ -10,22 +10,16 @@ import SwiftData
 
 struct ContentView: View {
     @State private var navigationManager = NavigationManager()
-    @State private var dataManager = HomePageDataManager()
 
     var body: some View {
-        NavigationSplitView {
-            NavigationStack(path: $navigationManager.path) {
-                MapPage()
-                    .navigationDestination(for: NavigationDestination.self) { destination in
-                        destinationView(for: destination)
-                    }
-                    .toolbarTitleDisplayMode(.inline)
-            }
-        } detail: {
-            Text("Detail")
+        NavigationStack(path: $navigationManager.path) {
+            MapPage()
+                .navigationDestination(for: NavigationDestination.self) { destination in
+                    destinationView(for: destination)
+                }
+                .toolbarTitleDisplayMode(.inline)
         }
         .environment(navigationManager)
-        .environment(dataManager)
     }
     
     @ViewBuilder
@@ -41,9 +35,6 @@ struct ContentView: View {
             PlaceDetailPage(placeId: id, groupId: groupId)
         case .routeDetail(let id):
             RouteDetailPage(routeId: id)
-        default:
-            // 其他导航目标由各自页面处理
-            EmptyView()
         }
     }
 }

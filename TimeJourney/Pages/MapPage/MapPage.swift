@@ -55,7 +55,7 @@ struct MapPage: View {
                             Button(action: {
                                 navigationManager.navigate(to: .placeDetail(id: place.id, groupId: selectedGroupId))
                             }) {
-                                PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 24)
+                                PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 26)
                             }
                             .buttonStyle(.plain)
                         }
@@ -236,14 +236,6 @@ struct MapPage: View {
                     Divider()
                     Button(action: {
                         Task { @MainActor in
-                            addSamplePlaces()
-                        }
-                    }) {
-                        Label("生成测试地点", systemImage: "sparkles")
-                    }
-                    Divider()
-                    Button(action: {
-                        Task { @MainActor in
                             await requestPhotoAccessAndPresentPicker()
                         }
                     }) {
@@ -313,37 +305,6 @@ struct MapPage: View {
             mapPosition = .region(region)
         } catch {
             print("定位失败: \(error.localizedDescription)")
-        }
-    }
-
-    /// 标记当前位置并保存为地点
-    @MainActor
-    private func markCurrentLocation() async {
-        guard !isSavingCurrentLocation else {
-            return
-        }
-        isSavingCurrentLocation = true
-        defer {
-            isSavingCurrentLocation = false
-        }
-
-        do {
-            guard let location = try await fetchCurrentLocation() else {
-                return
-            }
-            showsUserLocation = true
-
-            let adjustedCoordinate = CoordinateConverter.convertIfNeeded(location.coordinate)
-            let adjustedLocation = CLLocation(latitude: adjustedCoordinate.latitude, longitude: adjustedCoordinate.longitude)
-            let mapItem = await reverseGeocode(location: adjustedLocation)
-            let place = mapItem.map { PlaceItem(mapItem: $0) } ?? PlaceItem(location: adjustedLocation)
-            place.mapIconName = "round_pushpin_round_pushpin_3d"
-
-            insertPlaceAndAttachToGuide(place)
-
-            moveMap(to: place.coordinate)
-        } catch {
-            print("标记当前位置失败: \(error.localizedDescription)")
         }
     }
 
@@ -449,42 +410,6 @@ struct MapPage: View {
         let minRouteArrivalAt = routes.map(\.arrivalAt).min()
         let minArrivalAt = [minPlaceArrivalAt, minRouteArrivalAt].compactMap { $0 }.min()
         timelineState.updateStartDate(minArrivalAt: minArrivalAt)
-    }
-
-    @MainActor
-    private func addSamplePlaces() {
-        let calendar = Calendar.current
-        let now = Date()
-        let samples: [(name: String, city: String, latitude: Double, longitude: Double, monthsAgo: Int)] = [
-            ("天安门广场", "北京", 39.9087, 116.3975, 0),
-            ("外滩", "上海", 31.2400, 121.4900, 1),
-            ("兵马俑", "西安", 34.3849, 109.2733, 2),
-            ("漓江", "桂林", 25.2736, 110.2900, 3),
-            ("峨眉山", "乐山", 29.5170, 103.3310, 4),
-            ("张家界国家森林公园", "张家界", 29.3300, 110.4790, 5),
-            ("西湖", "杭州", 30.2431, 120.1500, 6),
-            ("布达拉宫", "拉萨", 29.6577, 91.1175, 7),
-            ("鼓浪屿", "厦门", 24.4510, 118.0660, 8),
-            ("九寨沟", "阿坝", 33.2520, 103.9180, 9),
-            ("黄山", "黄山", 30.1340, 118.1660, 10),
-            ("武陵源", "张家界", 29.3570, 110.5500, 11)
-        ]
-
-        for sample in samples {
-            let arrivalAt = calendar.date(byAdding: .month, value: -sample.monthsAgo, to: now) ?? now
-            let place = PlaceItem(
-                createdAt: arrivalAt,
-                name: sample.name,
-                addressShort: sample.city,
-                addressCityName: sample.city,
-                latitude: sample.latitude,
-                longitude: sample.longitude,
-                arrivalAt: arrivalAt
-            )
-            place.mapIconName = "round_pushpin_round_pushpin_3d"
-            insertPlaceAndAttachToGuide(place)
-        }
-        modelContext.processPendingChanges()
     }
 
     private func truncatedPlaceTitle(_ name: String?) -> String {
@@ -651,19 +576,18 @@ struct MapPage: View {
 
     @MainActor
     private func addPlaceFromPhoto(coordinate: CLLocationCoordinate2D) async {
-        let adjustedCoordinate = CoordinateConverter.convertIfNeeded(coordinate)
-        let location = CLLocation(latitude: adjustedCoordinate.latitude, longitude: adjustedCoordinate.longitude)
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         let place = PlaceItem(
             name: "新地点",
             addressFull: "未知",
             addressShort: "未知",
-            latitude: adjustedCoordinate.latitude,
-            longitude: adjustedCoordinate.longitude
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
         )
         place.arrivalAt = Date()
         place.mapIconName = "round_pushpin_round_pushpin_3d"
         insertPlaceAndAttachToGuide(place)
-        moveMap(to: adjustedCoordinate)
+        moveMap(to: coordinate)
 
         if let mapItem = await reverseGeocode(location: location) {
             applyMapItem(mapItem, to: place)
@@ -722,48 +646,6 @@ struct MapPage: View {
         place.url = updated.url
         place.pointOfInterestCategory = updated.pointOfInterestCategory
         place.timeZoneIdentifier = updated.timeZoneIdentifier
-    }
-    
-    /// 仅用于连续定位
-    var locationManager: CLLocationManager?
-    
-    /// 开始连续定位
-    private mutating func startContinuousLocation() async {
-        // 检查权限
-        let hasPermission = await LocationUtil.checkAndRequestPermission()
-
-        guard hasPermission else {
-            print("权限不足，无法连续定位")
-            return
-        }
-
-        await MainActor.run {
-            // 创建locationManager
-            locationManager = CLLocationManager()
-            locationManager?.desiredAccuracy = kCLLocationAccuracyBest
-            locationManager?.distanceFilter = 10.0
-
-            let delegate = ContinuousLocationDelegate { location in
-                let newLine = """
-                新位置:
-                WGS84: \(String(format: "%.6f", location.coordinate.latitude)), \(String(format: "%.6f", location.coordinate.longitude))
-                精度: \(String(format: "%.0f米", location.horizontalAccuracy))
-                \n
-                """
-
-                print(newLine)
-            }
-
-            locationManager?.delegate = delegate
-            objc_setAssociatedObject(locationManager!, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            locationManager?.startUpdatingLocation()
-        }
-    }
-
-    /// 停止连续定位
-    private mutating func stopContinuousLocation() {
-        locationManager?.stopUpdatingLocation()
-        locationManager = nil
     }
 }
 
@@ -894,30 +776,6 @@ private struct GroupPickerSheet: View {
     }
 }
 
-private struct AddPlaceLoadingOverlay: View {
-    let text: String
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.2)
-                .ignoresSafeArea()
-
-            VStack(spacing: 12) {
-                ProgressView()
-                Text(text)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
-        }
-        .transition(.opacity)
-    }
-}
-
-
 // MARK: - 位置委托类
 
 /// 单次定位委托
@@ -942,26 +800,6 @@ private class LocationDelegate: NSObject, CLLocationManagerDelegate {
         hasResumed = true
         manager.stopUpdatingLocation()
         continuation.resume(throwing: error)
-    }
-}
-
-/// 连续定位委托
-private class ContinuousLocationDelegate: NSObject, CLLocationManagerDelegate {
-    private let onUpdate: (CLLocation) -> Void
-
-    init(onUpdate: @escaping (CLLocation) -> Void) {
-        self.onUpdate = onUpdate
-        super.init()
-    }
-
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        if let location = locations.last {
-            onUpdate(location)
-        }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("连续定位错误: \(error.localizedDescription)")
     }
 }
 
