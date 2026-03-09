@@ -243,6 +243,7 @@ private struct GuidePickerSheet: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isShowingAddGuideSheet = false
     @State private var selectedGroupIds: Set<UUID> = []
+    @State private var attachedGroupIds: Set<UUID> = []
 
     var body: some View {
         NavigationStack {
@@ -292,7 +293,7 @@ private struct GuidePickerSheet: View {
             }
         }
         .onAppear {
-            selectedGroupIds = Set(place.groupLinks.compactMap { $0.group?.id })
+            refreshAttachedIds()
         }
         .sheet(isPresented: $isShowingAddGuideSheet) {
             AddGuideSheet { group in
@@ -301,9 +302,18 @@ private struct GuidePickerSheet: View {
         }
     }
 
+    private func refreshAttachedIds() {
+        let placeId = place.id
+        let descriptor = FetchDescriptor<GroupPlaceLink>(
+            predicate: #Predicate<GroupPlaceLink> { $0.place?.id == placeId }
+        )
+        let links = (try? modelContext.fetch(descriptor)) ?? []
+        attachedGroupIds = Set(links.compactMap { $0.group?.id })
+    }
+
     @ViewBuilder
     private func groupRow(_ group: GroupItem) -> some View {
-        let isAttached = place.groupLinks.contains(where: { $0.group?.id == group.id })
+        let isAttached = attachedGroupIds.contains(group.id)
         let isSelected = selectedGroupIds.contains(group.id)
 
         Button(action: {
@@ -333,8 +343,7 @@ private struct GuidePickerSheet: View {
     }
 
     private func attachSelectedGroups() {
-        let existingIds = Set(place.groupLinks.compactMap { $0.group?.id })
-        let newIds = selectedGroupIds.subtracting(existingIds)
+        let newIds = selectedGroupIds.subtracting(attachedGroupIds)
         guard !newIds.isEmpty else { return }
 
         for group in groups where newIds.contains(group.id) {

@@ -21,24 +21,39 @@ struct MapPage: View {
     @State private var showsUserLocation: Bool = false
     @State private var selectedGroupId: UUID? = nil
     @AppStorage("lastSelectedGroupId") private var lastSelectedGroupId: String = ""
+    @AppStorage("hideRoutesOnMap") private var hideRoutesOnMap: Bool = false
     @State private var isShowingAddGuideSheet: Bool = false
     @State private var isShowingGroupPicker: Bool = false
+    @State private var isShowingGuideSheet: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isProcessingPhotoLocation: Bool = false
     @State private var activeAlert: ActiveAlert?
     @State private var isShowingPhotosPicker: Bool = false
     @State private var photoProcessingToken = UUID()
     @State private var didInitialMapFit: Bool = false
+    @State private var isRouteSelectionMode: Bool = false
+    @State private var routeSelectionPoints: [CLLocationCoordinate2D] = []
+    @State private var isShowingRouteNameInput: Bool = false
+    @State private var routeNameInput: String = ""
+    @State private var placeDetailItem: DetailSheetItem?
+    @State private var routeDetailItem: DetailSheetItem?
     @Environment(NavigationManager.self) private var navigationManager
     @Environment(\.modelContext) private var modelContext
     @Query private var places: [PlaceItem]
     @Query private var routes: [RouteItem]
     @Query(sort: \GroupItem.createdAt, order: .forward) private var groups: [GroupItem]
     @Query private var groupPlaceLinks: [GroupPlaceLink]
+    @Query private var groupRouteLinks: [GroupRouteLink]
 
     private var visiblePlaces: [PlaceItem] {
         let cutoff = selectedMonthEndDate
         let groupFiltered = filterPlacesByGroup(places)
+        return groupFiltered.filter { $0.arrivalAt <= cutoff }
+    }
+
+    private var visibleRoutes: [RouteItem] {
+        let cutoff = selectedMonthEndDate
+        let groupFiltered = filterRoutesByGroup(routes)
         return groupFiltered.filter { $0.arrivalAt <= cutoff }
     }
 
@@ -53,11 +68,55 @@ struct MapPage: View {
                     ForEach(visiblePlaces, id: \.id) { place in
                         Annotation(truncatedPlaceTitle(place.name), coordinate: place.coordinate, anchor: .bottom) {
                             Button(action: {
-                                navigationManager.navigate(to: .placeDetail(id: place.id, groupId: selectedGroupId))
+                                guard !isRouteSelectionMode else { return }
+                                placeDetailItem = DetailSheetItem(id: place.id, groupId: selectedGroupId)
                             }) {
                                 PlaceMarkerView(iconName: place.mapIconName, fallbackColor: .red, size: 26)
                             }
                             .buttonStyle(.plain)
+                        }
+                    }
+
+                    if !hideRoutesOnMap {
+                        ForEach(visibleRoutes.filter { $0.sortedPoints.count >= 2 }, id: \.id) { route in
+                            MapPolyline(coordinates: route.sortedPoints.map(\.coordinate))
+                                .stroke(.blue, lineWidth: 3)
+                            Annotation(route.name ?? "", coordinate: routeMidPoint(route), anchor: .bottom) {
+                                Button(action: {
+                                    guard !isRouteSelectionMode else { return }
+                                    routeDetailItem = DetailSheetItem(id: route.id, groupId: selectedGroupId)
+                                }) {
+                                    Text(route.name ?? "路线")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(.blue, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    if isRouteSelectionMode {
+                        if routeSelectionPoints.count >= 2 {
+                            MapPolyline(coordinates: routeSelectionPoints)
+                                .stroke(.orange, lineWidth: 3)
+                        }
+                        ForEach(Array(routeSelectionPoints.enumerated()), id: \.offset) { index, point in
+                            Annotation("", coordinate: point) {
+                                ZStack {
+                                    Circle()
+                                        .fill(.orange)
+                                        .frame(width: 16, height: 16)
+                                    Circle()
+                                        .stroke(.white, lineWidth: 2)
+                                        .frame(width: 16, height: 16)
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
                         }
                     }
                 }
@@ -70,6 +129,14 @@ struct MapPage: View {
                     )
                 )
                 .simultaneousGesture(addPlaceGesture(mapProxy: mapProxy))
+                .simultaneousGesture(
+                    SpatialTapGesture()
+                        .onEnded { value in
+                            guard isRouteSelectionMode else { return }
+                            guard let coordinate = mapProxy.convert(value.location, from: .local) else { return }
+                            routeSelectionPoints.append(coordinate)
+                        }
+                )
                 .task {
                     if !didInitialMapFit, mapPosition.region == nil {
                         await updateMapToFitPlaces()
@@ -104,7 +171,20 @@ struct MapPage: View {
                         Spacer()
                         VStack(spacing: 12) {
                             Button(action: {
-                                // 定位功能
+                                withAnimation {
+                                    hideRoutesOnMap.toggle()
+                                }
+                            }) {
+                                Image(systemName: hideRoutesOnMap ? "eye.slash" : "eye")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(hideRoutesOnMap ? .secondary : .primary)
+                                    .frame(width: 40, height: 40)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .glassEffect(.regular, in: Circle())
+
+                            Button(action: {
                             Task {
                                 await singleLocation()
                             }
@@ -120,57 +200,70 @@ struct MapPage: View {
                             .glassEffect(.regular, in: Circle())
                             .opacity(isSingleLocation ? 0.5 : 1.0)
                             
+                            if !isRouteSelectionMode {
+                                Button(action: {
+                                    withAnimation {
+                                        isRouteSelectionMode = true
+                                        routeSelectionPoints = []
+                                        routeNameInput = ""
+                                    }
+                                }) {
+                                    Image(systemName: "hand.tap")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .frame(width: 40, height: 40)
+                                        .contentShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .glassEffect(.regular, in: Circle())
+                            }
+                        }
+                        .padding(.trailing, 10)
+                    }
+                    .padding(.bottom)
+                    if isRouteSelectionMode {
+                        RouteSelectionBar(
+                            pointCount: routeSelectionPoints.count,
+                            totalDistance: routeSelectionTotalDistance,
+                            onUndo: undoLastRoutePoint
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                    } else {
+                        HStack(spacing: 16) {
                             Button(action: {
-                                // TODO: 路线选择功能
+                                isShowingGuideSheet = true
                             }) {
-                                Image(systemName: "hand.tap")
-                                    .font(.system(size: 14, weight: .medium))
+                                Image(systemName: "tray")
+                                    .font(.system(size: 20, weight: .medium))
                                     .foregroundStyle(.primary)
-                                    .frame(width: 40, height: 40)
+                                    .frame(width: 50, height: 50)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .glassEffect(.regular, in: Circle())
+                            
+                            TimelineScrollBar(state: timelineState)
+                            
+                            Button(action: {
+                                guard !isSavingCurrentLocation else { return }
+                                activeAlert = ActiveAlert(
+                                    type: .saveCurrentLocationConfirm,
+                                    message: "将当前位置保存为新地点"
+                                )
+                            }) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundStyle(.black)
+                                    .frame(width: 50, height: 50)
                                     .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
                             .glassEffect(.regular, in: Circle())
                         }
-                        .padding(.trailing, 10)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
                     }
-                    .padding(.bottom)
-                    HStack(spacing: 16) {
-                        // 指南按钮 - 使用导航管理器进入指南页面
-                        Button(action: {
-                            navigationManager.navigate(to: .guide(groupId: selectedGroupId))
-                        }) {
-                            Image(systemName: "tray")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(.primary)
-                                .frame(width: 50, height: 50)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: Circle())
-                        
-                        // 时间线滚动条
-                        TimelineScrollBar(state: timelineState)
-                        
-                        // 添加按钮
-                        Button(action: {
-                            guard !isSavingCurrentLocation else { return }
-                            activeAlert = ActiveAlert(
-                                type: .saveCurrentLocationConfirm,
-                                message: "将当前位置保存为新地点"
-                            )
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(.black)
-                                .frame(width: 50, height: 50)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: Circle())
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
 
                 }
             }
@@ -212,52 +305,96 @@ struct MapPage: View {
                 )
             }
         }
+        .alert("保存路线", isPresented: $isShowingRouteNameInput) {
+            TextField("路线名称", text: $routeNameInput)
+            Button("取消", role: .cancel) { }
+            Button("保存") {
+                saveRoute()
+            }
+        } message: {
+            Text("请输入路线名称")
+        }
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: {
-                    navigationManager.navigate(to: .user)
-                }) {
-                    Label("User", systemImage: "person")
+                if isRouteSelectionMode {
+                    Button("取消") {
+                        exitRouteSelectionMode()
+                    }
+                } else {
+                    Button(action: {
+                        navigationManager.navigate(to: .user)
+                    }) {
+                        Label("User", systemImage: "person")
+                    }
                 }
             }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button(action: {
-                    navigationManager.navigate(to: .search)
-                }) {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                Menu {
-                    Button(action: {
-                        isShowingGroupPicker = true
-                    }) {
-                        Label("更换指南", systemImage: "arrow.triangle.2.circlepath")
+                if isRouteSelectionMode {
+                    Button("保存") {
+                        routeNameInput = "新路线\(routes.count + 1)"
+                        isShowingRouteNameInput = true
                     }
-                    Divider()
+                    .disabled(routeSelectionPoints.count < 2)
+                } else {
                     Button(action: {
-                        Task { @MainActor in
-                            await requestPhotoAccessAndPresentPicker()
+                        navigationManager.navigate(to: .search)
+                    }) {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                    Menu {
+                        Button(action: {
+                            isShowingGroupPicker = true
+                        }) {
+                            Label("更换指南", systemImage: "arrow.triangle.2.circlepath")
                         }
-                    }) {
-                        Label("获取照片位置", systemImage: "photo")
+                        Divider()
+                        Button(action: {
+                            Task { @MainActor in
+                                await requestPhotoAccessAndPresentPicker()
+                            }
+                        }) {
+                            Label("获取照片位置", systemImage: "photo")
+                        }
+                        Divider()
+                        Button(action: {
+                            // TODO: 分享功能
+                        }) {
+                            Label("分享", systemImage: "mappin")
+                        }
+                        Divider()
+                        Button(action: {
+                            // TODO: 数据导出功能
+                        }) {
+                            Label("数据导出", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Label("更多", systemImage: "ellipsis")
                     }
-                    Divider()
-                    Button(action: {
-                        // TODO: 分享功能
-                    }) {
-                        Label("分享", systemImage: "mappin")
-                    }
-                    Divider()
-                    Button(action: {
-                        // TODO: 数据导出功能
-                    }) {
-                        Label("数据导出", systemImage: "square.and.arrow.up")
-                    }
-                } label: {
-                    Label("更多", systemImage: "ellipsis")
                 }
             }
             #endif
+        }
+        .sheet(item: $placeDetailItem) { item in
+            NavigationStack {
+                PlaceDetailPage(placeId: item.id, groupId: item.groupId)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $routeDetailItem) { item in
+            NavigationStack {
+                RouteDetailPage(routeId: item.id, groupId: item.groupId)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $isShowingGuideSheet) {
+            NavigationStack {
+                GuidePage(groupId: selectedGroupId)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingAddGuideSheet) {
             AddGuideSheet { group in
@@ -272,6 +409,71 @@ struct MapPage: View {
         }
     }
     
+    // MARK: - 路线选择
+
+    private var routeSelectionTotalDistance: Double {
+        guard routeSelectionPoints.count >= 2 else { return 0 }
+        var total: Double = 0
+        for i in 1..<routeSelectionPoints.count {
+            let prev = CLLocation(
+                latitude: routeSelectionPoints[i - 1].latitude,
+                longitude: routeSelectionPoints[i - 1].longitude
+            )
+            let curr = CLLocation(
+                latitude: routeSelectionPoints[i].latitude,
+                longitude: routeSelectionPoints[i].longitude
+            )
+            total += prev.distance(from: curr)
+        }
+        return total
+    }
+
+    private func undoLastRoutePoint() {
+        guard !routeSelectionPoints.isEmpty else { return }
+        routeSelectionPoints.removeLast()
+    }
+
+    private func exitRouteSelectionMode() {
+        withAnimation {
+            isRouteSelectionMode = false
+            routeSelectionPoints = []
+            routeNameInput = ""
+        }
+    }
+
+    @MainActor
+    private func saveRoute() {
+        guard routeSelectionPoints.count >= 2 else { return }
+
+        let name = routeNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = name.isEmpty ? "新路线\(routes.count + 1)" : name
+
+        let route = RouteItem(
+            name: finalName,
+            sourceTypeRaw: RouteSourceType.planned.rawValue,
+            geometryTypeRaw: RouteGeometryType.straightLine.rawValue,
+            distanceMeters: routeSelectionTotalDistance,
+            startLatitude: routeSelectionPoints.first?.latitude,
+            startLongitude: routeSelectionPoints.first?.longitude,
+            endLatitude: routeSelectionPoints.last?.latitude,
+            endLongitude: routeSelectionPoints.last?.longitude
+        )
+
+        route.points = routeSelectionPoints.enumerated().map { index, coord in
+            RoutePoint(index: index, latitude: coord.latitude, longitude: coord.longitude)
+        }
+
+        modelContext.insert(route)
+
+        if let selectedGroupId, let group = resolveGroup(for: selectedGroupId) {
+            let link = GroupRouteLink(group: group, route: route)
+            modelContext.insert(link)
+        }
+
+        modelContext.processPendingChanges()
+        exitRouteSelectionMode()
+    }
+
     /// 单次定位
     @MainActor
     func singleLocation() async  {
@@ -405,6 +607,27 @@ struct MapPage: View {
         return source.filter { groupPlaceIds.contains($0.id) }
     }
 
+    private func filterRoutesByGroup(_ source: [RouteItem]) -> [RouteItem] {
+        guard let selectedGroupId else {
+            return source
+        }
+        let groupRouteIds = Set(
+            groupRouteLinks
+                .filter { $0.group?.id == selectedGroupId }
+                .compactMap { $0.route?.id }
+        )
+        guard !groupRouteIds.isEmpty else { return [] }
+        return source.filter { groupRouteIds.contains($0.id) }
+    }
+
+    private func routeMidPoint(_ route: RouteItem) -> CLLocationCoordinate2D {
+        let points = route.sortedPoints
+        guard !points.isEmpty else {
+            return CLLocationCoordinate2D(latitude: 0, longitude: 0)
+        }
+        return points[points.count / 2].coordinate
+    }
+
     private func updateTimelineStartDate() {
         let minPlaceArrivalAt = places.map(\.arrivalAt).min()
         let minRouteArrivalAt = routes.map(\.arrivalAt).min()
@@ -506,6 +729,7 @@ struct MapPage: View {
         LongPressGesture(minimumDuration: 0.6)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
             .onEnded { value in
+                guard !isRouteSelectionMode else { return }
                 guard case .second(true, let drag?) = value else { return }
                 guard let coordinate = mapProxy.convert(drag.location, from: .local) else { return }
                 Task {
@@ -824,6 +1048,63 @@ struct PlaceMarkerView: View {
                 .frame(width: size, height: size)
         }
     }
+}
+
+private struct RouteSelectionBar: View {
+    let pointCount: Int
+    let totalDistance: Double
+    let onUndo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "map")
+                .font(.system(size: 18))
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("总里程")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(formattedDistance)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+
+            Spacer()
+
+            Text("\(pointCount) 个点")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+
+            Button(action: onUndo) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(pointCount == 0 ? .secondary : .primary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular, in: Circle())
+            .disabled(pointCount == 0)
+            .opacity(pointCount == 0 ? 0.4 : 1.0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 25))
+    }
+
+    private var formattedDistance: String {
+        if totalDistance >= 1000 {
+            return String(format: "%.2f km", totalDistance / 1000)
+        } else {
+            return String(format: "%.0f m", totalDistance)
+        }
+    }
+}
+
+struct DetailSheetItem: Identifiable {
+    let id: UUID
+    let groupId: UUID?
 }
 
 #Preview {

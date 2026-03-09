@@ -12,7 +12,7 @@ enum NavigationDestination: Hashable {
     case search
     case user
     case placeDetail(id: UUID, groupId: UUID?)
-    case routeDetail(id: UUID)
+    case routeDetail(id: UUID, groupId: UUID?)
     case guide(groupId: UUID?)
 }
 

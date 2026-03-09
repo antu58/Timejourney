@@ -33,8 +33,8 @@ struct ContentView: View {
             UserPage()
         case .placeDetail(let id, let groupId):
             PlaceDetailPage(placeId: id, groupId: groupId)
-        case .routeDetail(let id):
-            RouteDetailPage(routeId: id)
+        case .routeDetail(let id, let groupId):
+            RouteDetailPage(routeId: id, groupId: groupId)
         }
     }
 }
